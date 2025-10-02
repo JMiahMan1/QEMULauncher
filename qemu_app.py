@@ -160,18 +160,14 @@ def run_launcher(config):
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0",
         "-drive", f"id=disk0,if=none,format=vmdk,file={os.path.expanduser(config['disk_path'])}",
-        
-        # This is the key change: launch directly into fullscreen.
-        # This removes the need for the second script and all the complex waiting logic.
         "-display", "cocoa,show-cursor=on,full-screen=on",
-        
-        # virtio-gpu-pci no longer needs a fixed resolution. QEMU will tell it the fullscreen size.
         "-device", "virtio-gpu-pci",
-        
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
         "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
-        "-audiodev", "coreaudio,id=snd0,out.frequency=48000,out.channels=2,out.format=s16",
-        "-device", "intel-hda", "-device", "hda-output,audiodev=snd0",
+        "-audiodev", "coreaudio,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16",
+        "-device", "intel-hda", 
+        "-device", "hda-output,audiodev=snd0",
+        "-device", "hda-input,audiodev=snd0",
     ]
     
     if config.get('shared_dir_path') and config.get('mount_tag'):
