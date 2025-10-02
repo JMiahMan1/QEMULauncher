@@ -72,5 +72,5 @@ If you need to test the build locally, you can run the `build.sh` script directl
     ./build.sh 1.0.0
     ```
 
-4.  **Launch:** Double-click `QEMU Launcher.app` to run the application and begin the configuration process.
+4.  **Launch:** Double-click `QEMU Launcher.app` to run the application and begin the configuration process. 
 
