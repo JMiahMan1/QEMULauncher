@@ -1,0 +1,63 @@
+name: macOS Build and Release
+
+# Triggers the workflow when a new tag is pushed (e.g., v1.0.0)
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+' # Matches tags like v1.0.0 or v1.2.3
+
+jobs:
+  build:
+    # IMPORTANT: Must use a macOS runner for .app bundle creation
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    # 1. Install Dependencies for the Script (Ensures a clean environment)
+    - name: Install Homebrew (If not pre-installed)
+      run: |
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        # Add Homebrew to PATH for the runner session
+        echo "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH" >> $GITHUB_ENV
+      
+    - name: Install Python/QEMU Dependencies via Homebrew
+      run: |
+        brew install qemu python-tk
+        
+    # 2. Extract Version Tag
+    # Grabs the Git tag (e.g., 'v1.0.0') and extracts just the number ('1.0.0')
+    - name: Get Version Number
+      id: get_version
+      run: echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      shell: bash
+      
+    # 3. Build the .app Bundle
+    - name: Run Build Script
+      # Pass the extracted version number to the build.sh script
+      run: |
+        chmod +x build.sh
+        ./build.sh ${{ env.VERSION_NUMBER }}
+        
+    # 4. Package the App for Distribution
+    - name: Package Application
+      run: |
+        APP_NAME="QEMU Launcher"
+        VERSION="${{ env.VERSION_NUMBER }}"
+        ARCHIVE_NAME="${APP_NAME}-${VERSION}-macOS.zip"
+        
+        # Zip the .app bundle
+        zip -r "$ARCHIVE_NAME" "$APP_NAME.app"
+        
+    # 5. Create GitHub Release and Upload Asset
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+        files: QEMU Launcher-${{ env.VERSION_NUMBER }}-macOS.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
