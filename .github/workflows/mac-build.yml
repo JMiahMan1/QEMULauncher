@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    
+    permissions:
+      contents: write
+      releases: write
 
     steps:
     - name: Checkout Code
@@ -15,23 +19,19 @@ jobs:
       
     - name: Set Homebrew PATH
       run: |
-        # Ensure Homebrew directories are in PATH for the runner session
         echo "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH" >> $GITHUB_ENV
       
     - name: Install and Verify Dependencies
       run: |
-        # Verify Homebrew is working
         echo "--- Verifying Homebrew ---"
         if ! command -v brew; then
           echo "Homebrew command not found, cannot proceed."
           exit 1
         fi
         
-        # Install Core Dependencies
         echo "--- Installing qemu and python-tk ---"
         brew install qemu python-tk
         
-        # Verify Python3 and Tkinter
         echo "--- Verifying Python3 and Tkinter ---"
         if ! command -v python3; then
           echo "Python 3 command not found after install."
@@ -39,7 +39,6 @@ jobs:
         fi
         python3 -c "import tkinter" || { echo "Tkinter failed to import after installing python-tk."; exit 1; }
 
-        # Verify QEMU executables
         echo "--- Verifying QEMU ---"
         if ! command -v qemu-system-aarch64 && ! command -v qemu-system-x86_64; then
           echo "Neither qemu-system-aarch64 nor qemu-system-x86_64 found after install."
@@ -48,14 +47,12 @@ jobs:
       
     - name: Get CLEAN Version Number
       id: get_version
-      # Extracts the tag name (e.g., '1.0.0') by removing 'refs/tags/'
       run: echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
       shell: bash
       
     - name: Run Build Script
       run: |
         chmod +x build.sh
-        # Pass the extracted version number to the build.sh script
         ./build.sh ${{ env.VERSION_NUMBER }}
         
     - name: Package Application
@@ -65,7 +62,6 @@ jobs:
         ARCHIVE_NAME="${APP_NAME}-${VERSION}-macOS.zip"
         APP_BUNDLE_NAME="${APP_NAME}.app"
         
-        # Zip the .app bundle
         zip -r -q "$ARCHIVE_NAME" "$APP_BUNDLE_NAME"
         
     - name: Create Release
@@ -75,6 +71,7 @@ jobs:
         name: Release ${{ github.ref_name }}
         draft: false
         prerelease: false
+        overwrite: true 
         files: QEMU Launcher-${{ env.VERSION_NUMBER }}-macOS.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
