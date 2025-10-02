@@ -1,6 +1,5 @@
 name: macOS Build and Release
 
-# Triggers the workflow when a new tag is pushed (e.g., v1.0.0)
 on:
   push:
     tags:
@@ -8,49 +7,67 @@ on:
 
 jobs:
   build:
-    # IMPORTANT: Must use a macOS runner for .app bundle creation
     runs-on: macos-latest
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
       
-    # 1. Install Dependencies for the Script (Ensures a clean environment)
-    - name: Install Homebrew (If not pre-installed)
+    - name: Set Homebrew PATH
       run: |
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        # Add Homebrew to PATH for the runner session
+        # Ensure Homebrew directories are in PATH for the runner session
         echo "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH" >> $GITHUB_ENV
       
-    - name: Install Python/QEMU Dependencies via Homebrew
+    - name: Install and Verify Dependencies
       run: |
+        # Verify Homebrew is working
+        echo "--- Verifying Homebrew ---"
+        if ! command -v brew; then
+          echo "Homebrew command not found, cannot proceed."
+          exit 1
+        fi
+        
+        # Install Core Dependencies
+        echo "--- Installing qemu and python-tk ---"
         brew install qemu python-tk
         
-    # 2. Extract Version Tag
-    # Grabs the Git tag (e.g., 'v1.0.0') and extracts just the number ('1.0.0')
-    - name: Get Version Number
+        # Verify Python3 and Tkinter
+        echo "--- Verifying Python3 and Tkinter ---"
+        if ! command -v python3; then
+          echo "Python 3 command not found after install."
+          exit 1
+        fi
+        python3 -c "import tkinter" || { echo "Tkinter failed to import after installing python-tk."; exit 1; }
+
+        # Verify QEMU executables
+        echo "--- Verifying QEMU ---"
+        if ! command -v qemu-system-aarch64 && ! command -v qemu-system-x86_64; then
+          echo "Neither qemu-system-aarch64 nor qemu-system-x86_64 found after install."
+          exit 1
+        fi
+      
+    - name: Get CLEAN Version Number
       id: get_version
-      run: echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      # Extracts the tag name (e.g., '1.0.0') by removing 'refs/tags/'
+      run: echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
       shell: bash
       
-    # 3. Build the .app Bundle
     - name: Run Build Script
-      # Pass the extracted version number to the build.sh script
       run: |
         chmod +x build.sh
+        # Pass the extracted version number to the build.sh script
         ./build.sh ${{ env.VERSION_NUMBER }}
         
-    # 4. Package the App for Distribution
     - name: Package Application
       run: |
         APP_NAME="QEMU Launcher"
         VERSION="${{ env.VERSION_NUMBER }}"
         ARCHIVE_NAME="${APP_NAME}-${VERSION}-macOS.zip"
+        APP_BUNDLE_NAME="${APP_NAME}.app"
         
         # Zip the .app bundle
-        zip -r "$ARCHIVE_NAME" "$APP_NAME.app"
+        zip -r -q "$ARCHIVE_NAME" "$APP_BUNDLE_NAME"
         
-    # 5. Create GitHub Release and Upload Asset
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
