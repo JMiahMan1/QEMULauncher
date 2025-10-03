@@ -97,33 +97,51 @@ echo -e "\n[Verifying QEMU Feature Commands]"
 if ! command -v "$QEMU_EXEC" &> /dev/null || ! command -v gtimeout &> /dev/null; then
     echo -e "${YELLOW}WARNING: Skipping feature tests. 'qemu' or 'coreutils' (gtimeout) not found.${NC}"
 else
-    # Setup dummy files for tests
-    mkdir -p test_assets
-    DUMMY_DISK_PATH="$(pwd)/test_assets/dummy_disk.qcow2"
-    DUMMY_FW_PATH="$(pwd)/test_assets/dummy_firmware.fd"
-    
-    qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
-    dd if=/dev/zero of="$DUMMY_FW_PATH" bs=1m count=4 > /dev/null 2>&1
-    
-    # Define command arguments incrementally
-    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-nodefaults" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
-    FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH")
-    DISK_ARGS=("-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=disk0")
-    NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
-    SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
-    GPU_ARGS=("-device" "virtio-gpu-pci")
-    INPUT_ARGS=("-device" "virtio-keyboard-pci" "-device" "virtio-tablet-pci")
-    AUDIO_ARGS=("-audiodev" "none,id=snd0" "-device" "virtio-sound-pci,audiodev=snd0")
-    WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
-    
-    # Run tests with increasing complexity
-    validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}"
-    validate_qemu_command "Base + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
-    validate_qemu_command "Base + Firmware + Disk is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}"
-    validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+    # Discover the real QEMU firmware path
+    echo "[Locating Homebrew QEMU firmware]"
+    SKIP_FEATURE_TESTS=false
+    BREW_PREFIX=$(brew --prefix)
+    if [ "$HOST_ARCH" = "arm64" ]; then
+        FW_FILE="edk2-aarch64-code.fd"
+    else
+        FW_FILE="edk2-x86_64-code.fd"
+    fi
+    REAL_FW_PATH="$BREW_PREFIX/share/qemu/$FW_FILE"
 
-    # Teardown
-    rm -rf test_assets
+    if [ ! -f "$REAL_FW_PATH" ]; then
+        echo -e "  - ${YELLOW}WARNING: Real firmware not found at '$REAL_FW_PATH'. Skipping feature tests.${NC}"
+        SKIP_FEATURE_TESTS=true
+    else
+        echo "  - Found firmware: $REAL_FW_PATH"
+    fi
+
+    if [ "$SKIP_FEATURE_TESTS" = false ]; then
+        # Setup dummy files for tests
+        mkdir -p test_assets
+        DUMMY_DISK_PATH="$(pwd)/test_assets/dummy_disk.qcow2"
+        
+        qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
+        
+        # Define command arguments incrementally
+        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
+        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
+        DISK_ARGS=("-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=testdisk")
+        NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
+        SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
+        GPU_ARGS=("-device" "virtio-gpu-pci")
+        INPUT_ARGS=("-device" "virtio-keyboard-pci" "-device" "virtio-tablet-pci")
+        AUDIO_ARGS=("-audiodev" "none,id=snd0" "-device" "virtio-sound-pci,audiodev=snd0")
+        WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
+        
+        # Run tests with increasing complexity
+        validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}"
+        validate_qemu_command "Base + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
+        validate_qemu_command "Base + Firmware + Disk is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}"
+        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+
+        # Teardown
+        rm -rf test_assets
+    fi
 fi
 
 # --- Final Result ---
