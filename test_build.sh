@@ -82,10 +82,11 @@ if ! command -v $QEMU_EXEC &> /dev/null || ! command -v gtimeout &> /dev/null; t
 else
     # Setup dummy files for tests
     mkdir -p test_assets
-    touch test_assets/dummy_disk.qcow2
-    touch test_assets/dummy_firmware.fd
     DUMMY_DISK_PATH="$(pwd)/test_assets/dummy_disk.qcow2"
     DUMMY_FW_PATH="$(pwd)/test_assets/dummy_firmware.fd"
+    
+    qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
+    dd if=/dev/zero of="$DUMMY_FW_PATH" bs=1m count=4 > /dev/null 2>&1
     
     BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-accel" "hvf" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH")
 
