@@ -19,6 +19,45 @@ CONFIG_DIR = Path.home() / ".config" / "qemu_launcher"
 CONFIG_FILE = CONFIG_DIR / "config.ini"
 
 # ================================================================
+# DYNAMIC CHECKS
+# ================================================================
+
+def check_sdl_support(qemu_executable):
+    """Runs QEMU in a subprocess to check if SDL audio backend is available."""
+    try:
+        result = subprocess.run(
+            [qemu_executable, "-audiodev", "help"],
+            capture_output=True, text=True, check=True, timeout=5
+        )
+        if "sdl" in result.stdout.lower():
+            return True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        print(f"SDL support check failed: {e}", file=sys.stderr)
+    return False
+
+def get_screen_id():
+    """Returns the screen index (1 for secondary, 0 for primary) using AppleScript."""
+    try:
+        script = """
+        tell application "System Events"
+            set screen_count to count screens
+            if screen_count > 1 then
+                # Use the second screen (index 2) if available
+                return 1
+            else
+                # Use the primary screen (index 1) if only one is available
+                return 0
+            end if
+        end tell
+        """
+        output = subprocess.check_output(['osascript', '-e', script]).decode().strip()
+        return int(output) 
+
+    except Exception as e:
+        print(f"Screen detection failed, defaulting to primary display: {e}", file=sys.stderr)
+        return 0 # Default to primary display
+
+# ================================================================
 # UI AND CONFIGURATION LOGIC
 # ================================================================
 
@@ -153,20 +192,31 @@ def show_config_ui(existing_config=None):
 
 def run_launcher(config):
     """Builds the QEMU command and launches it directly into fullscreen."""
-    
+    sdl_available = check_sdl_support(config['qemu_executable'])
+    display_id = get_screen_id()
+    if sdl_available:
+        audio_device_params = [
+            "-audiodev", "sdl,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16",
+            "-device", "virtio-sound-pci,audiodev=snd0",
+        ]
+    else:
+        audio_device_params = [
+            "-audiodev", "coreaudio,id=snd0,out.frequency=48000,out.channels=2,out.format=s16",
+            "-device", "virtio-sound-pci,audiodev=snd0",
+        ]
+
     qemu_command = [
         config['qemu_executable'],
         "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "4", "-m", "16G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0",
         "-drive", f"id=disk0,if=none,format=vmdk,file={os.path.expanduser(config['disk_path'])}",
-        "-display", "cocoa,show-cursor=on,full-screen=on",
+        "-display", f"cocoa,show-cursor=on,full-screen=on,display={display_id}",
         "-device", "virtio-gpu-pci",
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
         "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
-        "-audiodev", "sdl,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16",
-        "-device", "virtio-sound-pci,audiodev=snd0",
     ]
+    qemu_command.extend(audio_device_params)
     
     if config.get('shared_dir_path') and config.get('mount_tag'):
         qemu_command.extend([
