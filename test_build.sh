@@ -21,8 +21,11 @@ validate_qemu_command() {
 
     printf "  - %-60s" "$description"
 
+    # Define the full command that will be run for the test, adding -snapshot
+    local full_test_command=("${qemu_command[@]}" "-display" "none" "-snapshot")
+
     # Run command, redirecting stderr to a log file
-    if gtimeout 1.5s "${qemu_command[@]}" -display none >/dev/null 2>"$error_log"; then
+    if gtimeout 1.5s "${full_test_command[@]}" >/dev/null 2>"$error_log"; then
         printf "[${GREEN}PASS${NC}]\n"
     else
         local exit_code=$?
@@ -30,7 +33,7 @@ validate_qemu_command() {
             printf "[${GREEN}PASS${NC}]\n" # Timed out, which is a success for this test
         else
             printf "[${RED}FAIL${NC}]\n"
-            echo -e "${RED}    -> Full command executed:${NC} ${qemu_command[*]} -display none"
+            echo -e "${RED}    -> Full command executed:${NC} ${full_test_command[*]}"
             echo -e "${RED}    -> QEMU output (stderr):${NC}"
             # Indent and print the error log
             sed 's/^/       /' "$error_log"
@@ -64,7 +67,7 @@ echo "[Checking HVF acceleration support]"
 ACCEL_FLAG=""
 CPU_FLAG="$DEFAULT_CPU"
 
-gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic > /dev/null 2>&1
+gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic -snapshot > /dev/null 2>&1
 RC=$?
 
 if [ $RC -eq 0 ] || [ $RC -eq 124 ]; then
@@ -123,20 +126,12 @@ else
         
         qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
         
-        # Define command arguments, with cross-architecture logic for the disk
-        if [ "$HOST_ARCH" = "arm64" ]; then
-            DISK_ARGS=(
-                "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
-                "-device" "virtio-blk-device,drive=testdisk"
-            )
-        else
-            DISK_ARGS=(
-                "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
-                "-device" "virtio-blk-pci,drive=testdisk,bus=pcie.0,addr=0x4"
-            )
-        fi
-        
+        # Define command arguments incrementally
         BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
+        DISK_ARGS=(
+            "-device" "virtio-blk-device,drive=testdisk"
+            "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
+        )
         FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
         NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
         SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
