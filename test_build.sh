@@ -88,7 +88,7 @@ else
     qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
     dd if=/dev/zero of="$DUMMY_FW_PATH" bs=1m count=4 > /dev/null 2>&1
     
-    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-accel" "hvf" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH")
+    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-accel" "tcg" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH")
 
     validate_qemu_command "Base command is valid" "${BASE_CMD[@]}"
     validate_qemu_command "VirtIO Network command is valid" "${BASE_CMD[@]}" "-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0"
