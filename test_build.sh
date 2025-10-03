@@ -106,9 +106,9 @@ else
     dd if=/dev/zero of="$DUMMY_FW_PATH" bs=1m count=4 > /dev/null 2>&1
     
     # Define command arguments incrementally
-    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=disk0")
+    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-nodefaults" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=disk0")
     NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
-    SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
+    SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fsdev=fs0,mount_tag=test")
     GPU_ARGS=("-device" "virtio-gpu-pci")
     INPUT_ARGS=("-device" "virtio-keyboard-pci" "-device" "virtio-tablet-pci")
     AUDIO_ARGS=("-audiodev" "none,id=snd0" "-device" "virtio-sound-pci,audiodev=snd0")
@@ -126,7 +126,7 @@ fi
 
 # --- Final Result ---
 echo ""
-if [ $FAIL_COUNT -eq <strong>0</strong> ]; then
+if [ $FAIL_COUNT -eq 0 ]; then
     echo -e "${GREEN}--- All tests passed successfully! ---${NC}"
     rm -rf "$OUTPUT_APP"
     exit 0
