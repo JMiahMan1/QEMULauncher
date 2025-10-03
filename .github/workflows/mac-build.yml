@@ -2,6 +2,8 @@ name: macOS Build and Release
 
 on:
   push:
+    branches:
+      - 'main'
     tags:
       - '*'
 
@@ -50,9 +52,15 @@ jobs:
           exit 1
         fi
       
-    - name: Get CLEAN Version Number
+    - name: Get Version Number
       id: get_version
-      run: echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      run: |
+        # Use tag if it exists, otherwise use commit SHA for a development version
+        if [[ $GITHUB_REF_TYPE == 'tag' ]]; then
+          echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        else
+          echo "VERSION_NUMBER=dev-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+        fi
       shell: bash
       
     - name: Run Build Script
@@ -75,6 +83,7 @@ jobs:
         zip -r -q "$ARCHIVE_NAME" "$APP_BUNDLE_NAME"
         
     - name: Create Release
+      if: github.ref_type == 'tag'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.ref_name }}
