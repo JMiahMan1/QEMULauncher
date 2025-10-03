@@ -123,12 +123,12 @@ else
         
         qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
         
-        # Define command arguments to match qemu_app.py
+        # Define command arguments incrementally
+        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
         DISK_ARGS=(
-            "-device" "virtio-blk-pci,drive=disk1"
-            "-drive" "id=disk1,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
+            "-device" "virtio-blk-pci,drive=testdisk,bus=pcie.0,addr=0x4"
+            "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
         )
-        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "${DISK_ARGS[@]}")
         FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
         NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
         SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
@@ -138,9 +138,10 @@ else
         WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
         
         # Run tests with increasing complexity
-        validate_qemu_command "Base machine + Disk is valid" "${BASE_CMD[@]}"
-        validate_qemu_command "Base + Disk + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
-        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+        validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}"
+        validate_qemu_command "Base + Disk is valid" "${BASE_CMD[@]}" "${DISK_ARGS[@]}"
+        validate_qemu_command "Base + Disk + Firmware is valid" "${BASE_CMD[@]}" "${DISK_ARGS[@]}" "${FIRMWARE_ARGS[@]}"
+        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${DISK_ARGS[@]}" "${FIRMWARE_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
 
         # Teardown
         rm -rf test_assets
