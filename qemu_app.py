@@ -54,6 +54,31 @@ def move_qemu_to_screen(window_pid, screen_index=1):
     except Exception as e:
         debug_print(f"Failed to move QEMU window {window_pid}: {e}")
 
+def validate_qemu_executable(executable_path):
+    """Checks if the QEMU executable is valid by running '--version'."""
+    if not executable_path or not os.path.exists(executable_path):
+        return False, "Executable file not found at the specified path."
+    
+    try:
+        debug_print(f"Validating QEMU executable: {executable_path}")
+        result = subprocess.run(
+            [executable_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        if result.returncode == 0:
+            debug_print("Validation successful. QEMU version:", result.stdout.strip())
+            return True, ""
+        else:
+            error_message = f"QEMU exited with an error:\n{result.stderr.strip()}"
+            debug_print(f"Validation failed. {error_message}")
+            return False, error_message
+    except (FileNotFoundError, PermissionError) as e:
+        return False, f"Could not run executable. Error: {e}"
+    except Exception as e:
+        return False, f"An unexpected validation error occurred: {e}"
+
 def check_sdl_support(qemu_executable):
     """Check if SDL audio backend is available."""
     try:
@@ -101,12 +126,13 @@ def load_config():
         'firmware_path': config.get('VM', 'firmware_path', fallback=''),
         'shared_dir_path': config.get('VM', 'shared_dir_path', fallback=str(Path.home() / "Documents")),
         'mount_tag': config.get('VM', 'mount_tag', fallback='host_share'),
+        'enable_webcam': config.getboolean('VM', 'enable_webcam', fallback=False),
     }
 
 def save_config(values):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     config = configparser.ConfigParser()
-    config['VM'] = values
+    config['VM'] = {k: str(v) for k, v in values.items()}
     with open(CONFIG_FILE, 'w') as f:
         config.write(f)
 
@@ -124,6 +150,7 @@ def show_config_ui(existing_config=None):
     fw_var = tk.StringVar(root, value=cfg.get('firmware_path', ''))
     share_path_var = tk.StringVar(root, value=cfg.get('shared_dir_path', ''))
     share_name_var = tk.StringVar(root, value=cfg.get('mount_tag', ''))
+    webcam_var = tk.BooleanVar(root, value=cfg.get('enable_webcam', False))
 
     frame = tk.Frame(root, padx=10, pady=10)
     frame.pack()
@@ -157,6 +184,8 @@ def show_config_ui(existing_config=None):
     tk.Label(frame, text="Share Name (Tag):").grid(row=5, column=0, sticky='w', pady=2)
     tk.Entry(frame, textvariable=share_name_var, width=50).grid(row=5, column=1, padx=5)
 
+    tk.Checkbutton(frame, text="Enable Webcam Passthrough", variable=webcam_var).grid(row=6, column=0, columnspan=2, sticky='w', pady=(10,0))
+
     result = {}
     def on_save():
         values = {
@@ -165,11 +194,29 @@ def show_config_ui(existing_config=None):
             'disk_path': disk_var.get(),
             'firmware_path': fw_var.get(),
             'shared_dir_path': share_path_var.get(),
-            'mount_tag': share_name_var.get()
+            'mount_tag': share_name_var.get(),
+            'enable_webcam': webcam_var.get()
         }
+
         if not all(values[k] for k in ['qemu_executable', 'disk_path', 'firmware_path']):
             messagebox.showerror("Error", "QEMU, Disk, and Firmware paths must be specified.")
             return
+
+        if not os.path.isfile(os.path.expanduser(values['disk_path'])):
+            messagebox.showerror("Validation Failed", f"VM Disk Image file not found:\n{values['disk_path']}")
+            return
+        if not os.path.isfile(os.path.expanduser(values['firmware_path'])):
+            messagebox.showerror("Validation Failed", f"UEFI Firmware file not found:\n{values['firmware_path']}")
+            return
+        if values['shared_dir_path'] and not os.path.isdir(os.path.expanduser(values['shared_dir_path'])):
+            messagebox.showerror("Validation Failed", f"Shared Directory not found:\n{values['shared_dir_path']}")
+            return
+
+        is_valid, error_msg = validate_qemu_executable(values['qemu_executable'])
+        if not is_valid:
+            messagebox.showerror("QEMU Validation Failed", f"The specified QEMU executable is not valid.\n\n{error_msg}")
+            return
+            
         save_config(values)
         result['status'] = 'ok'
         root.destroy()
@@ -179,7 +226,7 @@ def show_config_ui(existing_config=None):
         root.destroy()
 
     button_frame = tk.Frame(frame)
-    button_frame.grid(row=6, column=1, columnspan=2, sticky='e', pady=(10,0))
+    button_frame.grid(row=7, column=1, columnspan=2, sticky='e', pady=(10,0))
     tk.Button(button_frame, text="Save and Launch", command=on_save).pack(side='right', padx=5)
     tk.Button(button_frame, text="Cancel", command=on_cancel).pack(side='right')
 
@@ -194,7 +241,6 @@ def show_config_ui(existing_config=None):
 def run_launcher(config):
     display_params = "cocoa,show-cursor=on,full-screen=on"
 
-    # --- Audio setup based on SDL support ---
     sdl_supported = check_sdl_support(config['qemu_executable'])
     if sdl_supported:
         audio_device_params = [
@@ -224,6 +270,13 @@ def run_launcher(config):
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
         "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
     ]
+    
+    if config.get('enable_webcam'):
+        qemu_command.extend([
+            "-device", "nec-usb-xhci,id=usb",
+            "-device", "usb-camera,id=mycam,bus=usb.0"
+        ])
+    
     qemu_command.extend(audio_device_params)
 
     if config.get('shared_dir_path') and config.get('mount_tag'):
@@ -236,7 +289,7 @@ def run_launcher(config):
     debug_print(" ".join(qemu_command))
 
     proc = subprocess.Popen(qemu_command)
-    time.sleep(1.5)  # allow window to appear
+    time.sleep(1.5)
 
     if get_screen_count() > 1:
         debug_print("Moving QEMU window to secondary screen.")
@@ -254,5 +307,4 @@ if __name__ == "__main__":
     if config and config.get('disk_path') and config.get('qemu_executable'):
         run_launcher(config)
     else:
-        sys
-
+        sys.exit(1)

@@ -28,8 +28,8 @@ jobs:
           exit 1
         fi
         
-        echo "--- Installing qemu and python-tk ---"
-        brew install qemu python-tk
+        echo "--- Installing qemu, python-tk, and coreutils ---"
+        brew install qemu python-tk coreutils
         
         echo "--- Verifying Python3 and Tkinter ---"
         if ! command -v python3; then
@@ -43,6 +43,12 @@ jobs:
           echo "Neither qemu-system-aarch64 nor qemu-system-x86_64 found after install."
           exit 1
         fi
+
+        echo "--- Verifying coreutils (gtimeout) ---"
+        if ! command -v gtimeout; then
+          echo "gtimeout command not found after installing coreutils."
+          exit 1
+        fi
       
     - name: Get CLEAN Version Number
       id: get_version
@@ -53,6 +59,11 @@ jobs:
       run: |
         chmod +x build.sh
         ./build.sh ${{ env.VERSION_NUMBER }}
+        
+    - name: Run Build and Feature Tests
+      run: |
+        chmod +x test_build.sh
+        ./test_build.sh ${{ env.VERSION_NUMBER }}
         
     - name: Package Application
       run: |
