@@ -30,9 +30,9 @@ validate_qemu_command() {
             printf "[${GREEN}PASS${NC}]\n" # Timed out, which is a success for this test
         else
             printf "[${RED}FAIL${NC}]\n"
-            echo -e "${RED}    └─ Command failed with exit code $exit_code. QEMU output:${NC}"
+            echo -e "${RED}    -> Command failed with exit code $exit_code. QEMU output:${NC}"
             # Indent and print the error log
-            sed 's/^/         /' "$error_log"
+            sed 's/^/       /' "$error_log"
             ((FAIL_COUNT++))
         fi
     fi
@@ -62,7 +62,11 @@ echo "[Host Architecture Detected: $HOST_ARCH -> Using $QEMU_EXEC]"
 echo "[Checking HVF acceleration support]"
 ACCEL_FLAG="-accel tcg"
 CPU_FLAG="$DEFAULT_CPU"
-if gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic > /dev/null 2>&1; RC=$?; if [ $RC -eq 0 ] || [ $RC -eq 124 ]; then
+
+gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic > /dev/null 2>&1
+RC=$?
+
+if [ $RC -eq 0 ] || [ $RC -eq 124 ]; then
     echo "  - HVF acceleration is available."
     ACCEL_FLAG="-accel hvf"
     CPU_FLAG="-cpu host"
