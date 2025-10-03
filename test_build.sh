@@ -106,19 +106,21 @@ else
     dd if=/dev/zero of="$DUMMY_FW_PATH" bs=1m count=4 > /dev/null 2>&1
     
     # Define command arguments incrementally
-    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-nodefaults" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH" "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=disk0")
+    BASE_CMD=("$QEMU_EXEC" "-M" "virt" "-nodefaults" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
+    FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$DUMMY_FW_PATH")
+    DISK_ARGS=("-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=disk0")
     NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
-    SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fsdev=fs0,mount_tag=test")
+    SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
     GPU_ARGS=("-device" "virtio-gpu-pci")
     INPUT_ARGS=("-device" "virtio-keyboard-pci" "-device" "virtio-tablet-pci")
     AUDIO_ARGS=("-audiodev" "none,id=snd0" "-device" "virtio-sound-pci,audiodev=snd0")
     WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
     
     # Run tests with increasing complexity
-    validate_qemu_command "Base command is valid" "${BASE_CMD[@]}"
-    validate_qemu_command "Base + Networking is valid" "${BASE_CMD[@]}" "${NET_ARGS[@]}"
-    validate_qemu_command "Base + Net + Shared Folder is valid" "${BASE_CMD[@]}" "${NET_ARGS[@]}" "${SHARE_ARGS[@]}"
-    validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+    validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}"
+    validate_qemu_command "Base + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
+    validate_qemu_command "Base + Firmware + Disk is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}"
+    validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
 
     # Teardown
     rm -rf test_assets
