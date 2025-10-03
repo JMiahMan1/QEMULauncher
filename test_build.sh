@@ -125,8 +125,8 @@ else
         
         # Define command arguments to match qemu_app.py
         DISK_ARGS=(
-            "-device" "virtio-blk-pci,drive=disk0"
-            "-drive" "id=disk0,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
+            "-device" "virtio-blk-pci,drive=disk1"
+            "-drive" "id=disk1,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
         )
         BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "${DISK_ARGS[@]}")
         FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
