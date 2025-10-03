@@ -51,7 +51,7 @@ fi
 HOST_ARCH=$(uname -m)
 if [ "$HOST_ARCH" = "arm64" ]; then
     QEMU_EXEC="qemu-system-aarch64"
-    DEFAULT_CPU="-cpu max"
+    DEFAULT_CPU="-cpu cortex-a72"
 else
     QEMU_EXEC="qemu-system-x86_64"
     DEFAULT_CPU="-cpu max"
@@ -126,7 +126,7 @@ fi
 
 # --- Final Result ---
 echo ""
-if [ $FAIL_COUNT -eq 0 ]; then
+if [ $FAIL_COUNT -eq <strong>0</strong> ]; then
     echo -e "${GREEN}--- All tests passed successfully! ---${NC}"
     rm -rf "$OUTPUT_APP"
     exit 0
