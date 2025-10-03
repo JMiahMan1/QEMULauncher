@@ -21,11 +21,8 @@ validate_qemu_command() {
 
     printf "  - %-60s" "$description"
 
-    # Define the full command that will be run for the test
-    local full_test_command=("${qemu_command[@]}" "-display" "none")
-
     # Run command, redirecting stderr to a log file
-    if gtimeout 1.5s "${full_test_command[@]}" >/dev/null 2>"$error_log"; then
+    if gtimeout 1.5s "${qemu_command[@]}" -display none >/dev/null 2>"$error_log"; then
         printf "[${GREEN}PASS${NC}]\n"
     else
         local exit_code=$?
@@ -33,7 +30,7 @@ validate_qemu_command() {
             printf "[${GREEN}PASS${NC}]\n" # Timed out, which is a success for this test
         else
             printf "[${RED}FAIL${NC}]\n"
-            echo -e "${RED}    -> Full command executed:${NC} ${full_test_command[*]}"
+            echo -e "${RED}    -> Full command executed:${NC} ${qemu_command[*]} -display none"
             echo -e "${RED}    -> QEMU output (stderr):${NC}"
             # Indent and print the error log
             sed 's/^/       /' "$error_log"
@@ -127,9 +124,9 @@ else
         qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
         
         # Define command arguments incrementally
-        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
-        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
         DISK_ARGS=("-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "virtio-blk-pci,drive=testdisk")
+        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M" "${DISK_ARGS[@]}")
+        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
         NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
         SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
         GPU_ARGS=("-device" "virtio-gpu-pci")
@@ -138,10 +135,9 @@ else
         WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
         
         # Run tests with increasing complexity
-        validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}"
-        validate_qemu_command "Base + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
-        validate_qemu_command "Base + Firmware + Disk is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}"
-        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${DISK_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+        validate_qemu_command "Base machine + Disk is valid" "${BASE_CMD[@]}"
+        validate_qemu_command "Base + Disk + Firmware is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}"
+        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${FIRMWARE_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
 
         # Teardown
         rm -rf test_assets
