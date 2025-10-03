@@ -164,10 +164,8 @@ def run_launcher(config):
         "-device", "virtio-gpu-pci",
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
         "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
-        "-audiodev", "coreaudio,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16",
-        "-device", "intel-hda", 
-        "-device", "hda-output,audiodev=snd0",
-        "-device", "hda-input,audiodev=snd0",
+        "-audiodev", "sdl,id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16",
+        "-device", "virtio-sound-pci,audiodev=snd0",
     ]
     
     if config.get('shared_dir_path') and config.get('mount_tag'):
@@ -176,7 +174,6 @@ def run_launcher(config):
             "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config['mount_tag']}",
         ])
         
-    # We no longer need the complex "launch and detach" logic. We just run the command.
     subprocess.Popen(qemu_command)
     sys.exit(0)
 
@@ -185,14 +182,11 @@ def run_launcher(config):
 # MAIN EXECUTION BLOCK
 # ================================================================
 if __name__ == "__main__":
-    # The script is now much simpler. It no longer needs different modes.
     config = load_config()
     
-    # Show the UI if no config exists, or if the user passes a '--config' flag
     if not config or (len(sys.argv) > 1 and sys.argv[1] == '--config'):
         config = show_config_ui(config)
     
-    # If we have a valid config, launch the VM.
     if config and config.get('disk_path') and config.get('qemu_executable'):
         run_launcher(config)
     else:

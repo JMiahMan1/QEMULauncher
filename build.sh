@@ -72,6 +72,9 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
 	<true/>
 	<key>LSUIElement</key>
 	<false/>
+	
+    <key>NSMicrophoneUsageDescription</key>
+	<string>QEMU needs microphone access to route your audio input to the guest virtual machine for applications like Teams.</string>
 </dict>
 </plist>
 EOF
