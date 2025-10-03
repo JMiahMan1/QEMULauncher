@@ -60,7 +60,7 @@ echo "[Host Architecture Detected: $HOST_ARCH -> Using $QEMU_EXEC]"
 
 # Check for HVF support and set flags accordingly
 echo "[Checking HVF acceleration support]"
-ACCEL_FLAG="-accel tcg"
+ACCEL_FLAG=""
 CPU_FLAG="$DEFAULT_CPU"
 
 gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic > /dev/null 2>&1
