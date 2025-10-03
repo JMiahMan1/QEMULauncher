@@ -60,6 +60,10 @@ if [ "$HOST_ARCH" = "arm64" ]; then
     TABLET_DEVICE="virtio-tablet-device"
     NET_DEVICE="virtio-net-device"
     SHARE_DEVICE="virtio-9p-device"
+    DISK_BUS="pcie.0"
+    DISK_ADDR="0x4"
+    PFLASH_BUS="pcie.0"
+    PFLASH_ADDR="0x0"
 else
     QEMU_EXEC="qemu-system-x86_64"
     DEFAULT_CPU="-cpu max"
@@ -69,6 +73,10 @@ else
     TABLET_DEVICE="virtio-tablet-pci"
     NET_DEVICE="virtio-net-pci"
     SHARE_DEVICE="virtio-9p-pci"
+    DISK_BUS="pci.0"
+    DISK_ADDR="0x4"
+    PFLASH_BUS="pci.0"
+    PFLASH_ADDR="0x0"
 fi
 echo "[Host Architecture Detected: $HOST_ARCH -> Using $QEMU_EXEC]"
 
@@ -110,7 +118,7 @@ echo -e "\n[Verifying QEMU Feature Commands]"
 if ! command -v "$QEMU_EXEC" &> /dev/null || ! command -v gtimeout &> /dev/null; then
     echo -e "${YELLOW}WARNING: Skipping feature tests. 'qemu' or 'gtimeout' not found.${NC}"
 else
-    # Discover Homebrew QEMU firmware
+    # Locate Homebrew QEMU firmware
     echo "[Locating Homebrew QEMU firmware]"
     BREW_PREFIX=$(brew --prefix)
     if [ "$HOST_ARCH" = "arm64" ]; then
@@ -130,10 +138,15 @@ else
         DUMMY_DISK_PATH="$(pwd)/test_assets/dummy_disk.qcow2"
         qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M >/dev/null
 
-        # Incremental test command arrays
+        # Incremental test command arrays with explicit bus/addr
         BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
-        DISK_ARGS=("-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH" "-device" "$BLK_DEVICE,drive=testdisk")
-        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
+        DISK_ARGS=(
+            "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
+            "-device" "$BLK_DEVICE,drive=testdisk,bus=$DISK_BUS,addr=$DISK_ADDR"
+        )
+        FIRMWARE_ARGS=(
+            "-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH,bus=$PFLASH_BUS,addr=$PFLASH_ADDR"
+        )
         NET_ARGS=("-netdev" "user,id=n0" "-device" "$NET_DEVICE,netdev=n0")
         SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "$SHARE_DEVICE,fsdev=fs0,mount_tag=test")
         GPU_ARGS=("-device" "$GPU_DEVICE")
