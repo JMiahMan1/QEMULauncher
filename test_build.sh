@@ -51,7 +51,7 @@ fi
 HOST_ARCH=$(uname -m)
 if [ "$HOST_ARCH" = "arm64" ]; then
     QEMU_EXEC="qemu-system-aarch64"
-    DEFAULT_CPU="host"
+    DEFAULT_CPU=""
 else
     QEMU_EXEC="qemu-system-x86_64"
     DEFAULT_CPU="-cpu max"
