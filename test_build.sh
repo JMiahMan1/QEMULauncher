@@ -21,8 +21,11 @@ validate_qemu_command() {
 
     printf "  - %-60s" "$description"
 
+    # Define the full command that will be run for the test
+    local full_test_command=("${qemu_command[@]}" "-display" "none")
+
     # Run command, redirecting stderr to a log file
-    if gtimeout 1.5s "${qemu_command[@]}" -display none >/dev/null 2>"$error_log"; then
+    if gtimeout 1.5s "${full_test_command[@]}" >/dev/null 2>"$error_log"; then
         printf "[${GREEN}PASS${NC}]\n"
     else
         local exit_code=$?
@@ -30,7 +33,8 @@ validate_qemu_command() {
             printf "[${GREEN}PASS${NC}]\n" # Timed out, which is a success for this test
         else
             printf "[${RED}FAIL${NC}]\n"
-            echo -e "${RED}    -> Command failed with exit code $exit_code. QEMU output:${NC}"
+            echo -e "${RED}    -> Full command executed:${NC} ${full_test_command[*]}"
+            echo -e "${RED}    -> QEMU output (stderr):${NC}"
             # Indent and print the error log
             sed 's/^/       /' "$error_log"
             ((FAIL_COUNT++))
