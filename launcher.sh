@@ -42,7 +42,21 @@ fi
 
 # --- Main Logic ---
 if [ -f "$FLAG_FILE" ]; then
-    exec "$PYTHON3_BIN" "$PYTHON_APP_PATH" "$@"
+    # Build the shell command string for osascript
+    cmd="$PYTHON3_BIN \"$PYTHON_APP_PATH\""
+
+    # Append any additional arguments safely
+    for arg in "$@"; do
+        escaped_arg=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        cmd="$cmd \"$escaped_arg\""
+    done
+
+    # Escape double quotes for AppleScript
+    cmd_escaped=$(printf '%s' "$cmd" | sed 's/"/\\"/g')
+
+    # Run with admin privileges via osascript
+    osascript -e "do shell script \"$cmd_escaped\" with administrator privileges"
+    exit $?
 fi
 
 # --- First-Run Setup Wizard ---
@@ -82,4 +96,20 @@ fi
 # --- All checks passed. Create flag file and launch the main app. ---
 mkdir -p "$CONFIG_DIR"
 touch "$FLAG_FILE"
-exec "$PYTHON3_BIN" "$PYTHON_APP_PATH" "$@"
+if [ -f "$FLAG_FILE" ]; then
+    # Build the shell command string for osascript
+    cmd="$PYTHON3_BIN \"$PYTHON_APP_PATH\""
+
+    # Append any additional arguments safely
+    for arg in "$@"; do
+        escaped_arg=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        cmd="$cmd \"$escaped_arg\""
+    done
+
+    # Escape double quotes for AppleScript
+    cmd_escaped=$(printf '%s' "$cmd" | sed 's/"/\\"/g')
+
+    # Run with admin privileges via osascript
+    osascript -e "do shell script \"$cmd_escaped\" with administrator privileges"
+    exit $?
+fi
