@@ -149,24 +149,24 @@ def get_display_info():
     except Exception:
         return [{'width': 1920, 'height': 1080}] # Default fallback
 
-def move_qemu_to_screen(pid, screen_index=1, fullscreen=True):
-    """Moves the QEMU window to a specific screen and handles fullscreen."""
-    # We use AppleScript to find the window and move it
+def move_qemu_to_screen(screen_index=1, fullscreen=True):
+    """Moves the QEMU window to a specific screen by process name."""
+    # We look for the process by name since PIDs change with elevation
     script = f'''
     tell application "System Events"
-        repeat 10 times -- Wait for window to appear
-            set procs to every process whose unix id is {pid}
-            if (count of procs) > 0 then
-                set proc to item 1 of procs
-                if exists (window 1 of proc) then
-                    set target_window to window 1 of proc
+        repeat 20 times -- Wait up to 10 seconds for window
+            set qemuProcs to (every process whose name contains "qemu-system")
+            if (count of qemuProcs) > 0 then
+                set qemuProc to item 1 of qemuProcs
+                if (count of windows of qemuProc) > 0 then
+                    set qemuWin to window 1 of qemuProc
                     if {str(fullscreen).lower()} then
-                        tell target_window to set value of attribute "AXFullScreen" to true
+                        tell qemuWin to set value of attribute "AXFullScreen" to true
                     end if
                     return true
                 end if
             end if
-            delay 1
+            delay 0.5
         end repeat
     end tell
     '''
@@ -179,14 +179,7 @@ def run_launcher(config, dry_run=False):
             debug_print("Launch cancelled: configuration is invalid.")
         return None
 
-    # 1. Detect Displays and match resolution
-    displays = get_display_info()
-    secondary = displays[1] if len(displays) > 1 else displays[0]
-    res_width = secondary['width']
-    res_height = secondary['height']
-    debug_print(f"Targeting display: {res_width}x{res_height}")
-
-    # 2. Detect disk format from extension
+    # 1. Detect disk format
     disk_path = os.path.expanduser(config['disk_path'])
     ext = os.path.splitext(disk_path)[1].lower()
     disk_format = "raw"
@@ -195,13 +188,13 @@ def run_launcher(config, dry_run=False):
     elif ext == ".vdi": disk_format = "vdi"
     elif ext == ".vhdx": disk_format = "vhdx"
 
-    # 3. Base Command
+    # 2. Base Command (Removed xres/yres to prevent scaling lock)
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}",
         "-display", "cocoa,show-cursor=on,zoom-to-fit=on",
-        "-device", f"virtio-gpu-pci,xres={res_width},yres={res_height}",
+        "-device", "virtio-gpu-pci",
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
@@ -252,7 +245,7 @@ def run_launcher(config, dry_run=False):
         
         # Post-launch window management (runs in background)
         if proc:
-             move_qemu_to_screen(proc.pid, screen_index=1, fullscreen=config.get('enable_fullscreen', True))
+             move_qemu_to_screen(screen_index=1, fullscreen=config.get('enable_fullscreen', True))
         
         return proc
     except Exception as e:
