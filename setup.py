@@ -17,8 +17,8 @@ OPTIONS = {
         "NSMicrophoneUsageDescription": "QEMU needs microphone access to route your audio input to the guest VM.",
         "LSUIElement": False,  # Show in Dock
     },
-    "packages": ["pynput", "screeninfo", "AppKit"],
-    "includes": ["encodings", "encodings.*"],
+    "packages": ["pynput", "screeninfo", "AppKit", "encodings"],
+    "includes": ["encodings.*"],
     "site_packages": True,
 }
 
