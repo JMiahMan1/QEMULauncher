@@ -1,3 +1,5 @@
+import argparse
+import configparser
 import json
 import os
 import subprocess
@@ -159,11 +161,24 @@ def load_config(path=None):
     file_path = Path(path) if path else CONFIG_FILE
     if not file_path.exists():
         return None
+    
+    # Try JSON first
     try:
         with open(file_path, "r") as f:
             return json.load(f)
     except Exception:
-        return None
+        pass
+
+    # Try INI
+    try:
+        config = configparser.ConfigParser()
+        config.read(file_path)
+        if 'VM' in config:
+            return {k: v.strip('"\'') for k, v in config['VM'].items()}
+    except Exception:
+        pass
+    
+    return None
 
 
 def save_config(config, path=None):
@@ -208,15 +223,26 @@ def run_launcher(config, dry_run=False):
         "virtio-blk-pci,drive=disk0",
         "-drive",
         f"id=disk0,if=none,format=qcow2,file={os.path.expanduser(config['disk_path'])}",
-        "-display",
-        "cocoa,show-cursor=on,zoom-to-fit=on",
-        "-device",
-        f"virtio-gpu-pci,xres={target_display['width']},yres={target_display['height']}",
-        "-device",
-        "virtio-keyboard-pci",
-        "-device",
-        "virtio-tablet-pci",
+        "-display", "cocoa,show-cursor=on,zoom-to-fit=on",
+        "-device", f"virtio-gpu-pci,xres={target_display['width']},yres={target_display['height']}",
+        "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
+        "-device", "virtio-sound-pci,audiodev=snd0", "-audiodev", "coreaudio,id=snd0,in.frequency=48000,out.frequency=48000"
     ]
+
+    # Shared Folders
+    if config.get('shared_dir_path') and config.get('mount_tag'):
+        qemu_cmd.extend([
+            "-fsdev", f"local,id=fsdev0,path={os.path.expanduser(config['shared_dir_path'])},security_model=mapped-xattr",
+            "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config['mount_tag']}"
+        ])
+
+    # Hardware Passthrough
+    if config.get('enable_webcam'):
+        qemu_cmd.extend(["-device", "usb-ehci,id=usb", "-device", "usb-camera,audiodev=snd0"])
+    
+    if config.get('enable_microphone'):
+        # Audio is already handled via snd0, but we can add specific mic flags if needed
+        pass
 
     net_mode = config.get("network_mode", "vmnet-shared")
     if net_mode == "vmnet-shared":
@@ -314,8 +340,21 @@ def run_setup_ui(existing_config=None):
 
 
 if __name__ == "__main__":
-    c = load_config()
-    if not c or not SETUP_COMPLETE_FILE.exists():
+    parser = argparse.ArgumentParser(description="QEMU Launcher")
+    parser.add_argument("--config", help="Path to config file")
+    parser.add_argument("--dry-run", action="store_true", help="Print command and exit")
+    parser.add_argument("--setup", action="store_true", help="Force setup UI")
+    args = parser.parse_args()
+
+    c = load_config(args.config)
+    
+    if args.dry_run:
+        if c:
+            print(" ".join(run_launcher(c, dry_run=True)))
+        else:
+            print("Error: No config found for dry-run")
+            sys.exit(1)
+    elif args.setup or not c or not SETUP_COMPLETE_FILE.exists():
         run_setup_ui(c)
     else:
         run_launcher(c)
