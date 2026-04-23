@@ -168,7 +168,7 @@ def load_config(path=None):
             file_path = CONFIG_FILE
         else:
             # Check for legacy INI config in multiple standard locations
-            legacy_paths = [CONFIG_DIR / "config.ini", Path.home() / ".config" / "qemu_launcher.ini"]
+            legacy_paths = [CONFIG_DIR / "config.ini", Path.home() / ".config" / "qemu_launcher" / "config.ini"]
 
             file_path = None
             for p in legacy_paths:
