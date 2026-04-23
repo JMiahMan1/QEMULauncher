@@ -29,12 +29,12 @@ class TestMacOSLogic(unittest.TestCase):
         self.assertEqual(target["width"], 1920)
         self.assertEqual(target["x"], 1440)
 
-    @patch('threading.Thread')
-    @patch('subprocess.Popen')
-    @patch('qemu_app.DisplayManager.get_displays')
+    @patch("threading.Thread")
+    @patch("subprocess.Popen")
+    @patch("qemu_app.DisplayManager.get_displays")
     def test_window_orchestration_call(self, mock_get, mock_popen, mock_thread):
         """Verify that the window management thread is started."""
-        mock_get.return_value = [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080, 'is_primary': True}]
+        mock_get.return_value = [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
         qemu_app.WindowManager.orchestrate_window("qemu-system", fullscreen=True)
         # Verify that a thread was initialized to handle the window orchestration
         mock_thread.assert_called_once()
@@ -64,7 +64,7 @@ class TestMacOSLogic(unittest.TestCase):
         cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
         self.assertIn("vmnet-shared,id=net0", " ".join(cmd))
 
-    @patch('threading.Thread')
+    @patch("threading.Thread")
     @patch("subprocess.Popen")
     @patch("qemu_app.DisplayManager.get_target_display")
     def test_elevation_trigger(self, mock_target, mock_popen, mock_thread):
