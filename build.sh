@@ -79,4 +79,8 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
 </plist>
 EOF
 
+# 5. Ad-hoc Signing (Helps with Gatekeeper and bundle integrity)
+echo "-> Applying ad-hoc signature..."
+codesign --force --deep --sign - "$OUTPUT_APP"
+
 echo "--- Success! Built version $APP_VERSION ---"
