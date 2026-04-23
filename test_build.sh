@@ -31,6 +31,7 @@ validate_app_logic() {
     
     if [ "$exit_code" -ne 0 ]; then
         printf "[%bFAIL%b] (App crashed)\n" "${RED}" "${NC}"
+        # shellcheck disable=SC2001
         echo "$output" | sed 's/^/       /'
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return
@@ -39,6 +40,7 @@ validate_app_logic() {
     # Check for integrity issues
     if echo "$output" | grep -q "\[INTEGRITY\] Error"; then
         printf "[%bFAIL%b] (Integrity error)\n" "${RED}" "${NC}"
+        # shellcheck disable=SC2001
         echo "$output" | grep "\[INTEGRITY\]" | sed 's/^/       /'
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return
