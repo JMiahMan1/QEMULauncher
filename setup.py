@@ -16,6 +16,7 @@ OPTIONS = {
 }
 
 setup(
+    name="QEMU Launcher",
     app=APP,
     data_files=DATA_FILES,
     options={"py2app": OPTIONS},

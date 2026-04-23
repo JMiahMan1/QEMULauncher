@@ -1,3 +1,6 @@
-pyobjc-framework-Quartz; sys_platform == 'darwin'
 pynput
 screeninfo
+pyobjc-framework-AppKit
+pyobjc-framework-Quartz
+py2app
+ruff
