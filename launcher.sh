@@ -81,6 +81,16 @@ fi
 # --- Launch ---
 echo "Launching GUI with: $PYTHON_EXEC $PYTHON_SCRIPT" >> "$LOG_FILE"
 
-# Launch the Python GUI as the current user.
-# IMPORTANT: No 'with administrator privileges' here, so the window can open on your desktop.
-exec "$PYTHON_EXEC" "$PYTHON_SCRIPT" "$@" >> "$LOG_FILE" 2>&1
+# Launch the Python GUI
+"$PYTHON_EXEC" "$PYTHON_SCRIPT" "$@" >> "$LOG_FILE" 2>&1
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    ERROR_MSG="The application crashed with exit code $EXIT_CODE.\n\nPlease check the log file for details:\n$LOG_FILE"
+    echo "CRASH: $ERROR_MSG" >> "$LOG_FILE"
+    osascript -e "tell app \"System Events\" to display dialog \"$ERROR_MSG\" with title \"QEMU Launcher Error\" with icon stop"
+    exit $EXIT_CODE
+fi
+
+echo "--- Launcher Finished Successfully ---" >> "$LOG_FILE"
+exit 0
