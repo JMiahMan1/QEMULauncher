@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import datetime
 import json
 import os
 import subprocess
@@ -9,6 +10,25 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+
+# --- Environment and Logging Setup (Migrated from launcher.sh) ---
+os.environ["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ.get('PATH', '')}"
+LOG_FILE = Path("/tmp/qemu_launcher.log")
+
+def log_message(msg):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"[{timestamp}] {msg}\n")
+    except Exception:
+        pass
+
+# Initialize log
+try:
+    if not LOG_FILE.exists() or LOG_FILE.stat().st_size > 1024 * 1024:
+        LOG_FILE.write_text(f"--- QEMU Launcher Started at {datetime.datetime.now()} ---\n")
+except Exception:
+    pass
 
 # Native MacOS frameworks
 try:

@@ -33,6 +33,10 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     if [ -n "$GENERATED_APP" ]; then
         echo "-> Moving $GENERATED_APP to $OUTPUT_APP..."
         mv "$GENERATED_APP" "./$OUTPUT_APP"
+        
+        # 4. Ad-hoc Signing (Restored from original logic)
+        echo "-> Applying ad-hoc signature..."
+        codesign --force --deep --sign - "./$OUTPUT_APP"
     else
         echo "Error: No .app bundle found in dist/ directory."
         exit 1
