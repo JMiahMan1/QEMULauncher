@@ -126,46 +126,44 @@ def show_error(title, message):
 # QEMU LAUNCHER
 # ================================================================
 def get_display_info():
-    """Detects available displays and returns info for the second one if available."""
+    """Detects available displays and returns their full bounds (x, y, w, h)."""
     script = '''
-    tell application "Image Events"
+    tell application "System Events"
         set display_list to {}
-        repeat with i from 1 to count of displays
-            set d to display i
-            set {w, h} to value of (property "dimensions" of d)
-            set end of display_list to {w, h}
+        repeat with d in (every desktop)
+            set {x, y, w, h} to bounds of d
+            set end of display_list to {x, y, w, h}
         end repeat
         return display_list
     end tell
     '''
     try:
         output = subprocess.check_output(['osascript', '-e', script], text=True).strip()
-        # Parse output like "2560, 1440, 1920, 1080"
-        dims = [int(x.strip()) for x in output.split(',')]
+        # Parse output like "0, 0, 1920, 1080, 1920, 0, 3840, 1080"
+        nums = [int(x.strip()) for x in output.split(',')]
         displays = []
-        for i in range(0, len(dims), 2):
-            displays.append({'width': dims[i], 'height': dims[i+1]})
+        for i in range(0, len(nums), 4):
+            displays.append({
+                'x': nums[i], 'y': nums[i+1],
+                'width': nums[i+2] - nums[i],
+                'height': nums[i+3] - nums[i+1]
+            })
         return displays
     except Exception:
-        return [{'width': 1920, 'height': 1080}] # Default fallback
+        return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080}]
 
 def move_qemu_to_screen(screen_index=1, fullscreen=True):
-    """Moves the QEMU window to a specific screen and handles focus."""
+    """Moves the QEMU window to a specific screen with proper coordinates."""
     displays = get_display_info()
     if screen_index >= len(displays):
         screen_index = 0
     
     target = displays[screen_index]
-    # AppKit uses bottom-left origin, System Events uses top-left.
-    # For now we'll assume standard layout or use simple offsets.
-    x = 0 if screen_index == 0 else displays[0]['width']
-    y = 0
-    w = target['width']
-    h = target['height']
+    x, y, w, h = target['x'], target['y'], target['width'], target['height']
 
     script = f'''
     tell application "System Events"
-        repeat 20 times
+        repeat 30 times -- Wait up to 15 seconds
             set qemuProcs to (every process whose name contains "qemu-system")
             if (count of qemuProcs) > 0 then
                 set qemuProc to item 1 of qemuProcs
@@ -175,8 +173,8 @@ def move_qemu_to_screen(screen_index=1, fullscreen=True):
                     set position of qemuWin to {{ {x}, {y} }}
                     set size of qemuWin to {{ {w}, {h} }}
                     if {str(fullscreen).lower()} then
-                        delay 0.5
-                        tell qemuWin to set value of attribute "AXFullScreen" to true
+                        delay 1.0
+                        set value of attribute "AXFullScreen" of qemuWin to true
                     end if
                     return true
                 end if
