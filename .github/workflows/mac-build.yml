@@ -69,10 +69,7 @@ jobs:
       run: |
         APP_NAME="QEMU Launcher"
         VERSION="${{ env.VERSION_NUMBER }}"
-        ARCHIVE_NAME="${APP_NAME}-${VERSION}-macOS.zip"
-        APP_BUNDLE_NAME="${APP_NAME}.app"
-        
-        zip -r -q "$ARCHIVE_NAME" "$APP_BUNDLE_NAME"
+        zip -r -q "${APP_NAME}-${VERSION}-macOS.zip" "${APP_NAME}.app"
         
     - name: Create Release
       if: github.ref_type == 'tag'
@@ -83,6 +80,6 @@ jobs:
         draft: false
         prerelease: false
         overwrite: true 
-        files: QEMU Launcher-${{ env.VERSION_NUMBER }}-macOS.zip
+        files: "QEMU Launcher-${{ env.VERSION_NUMBER }}-macOS.zip"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
