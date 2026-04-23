@@ -23,16 +23,27 @@ if [ ! -f "$MAIN_SCRIPT" ] || [ ! -f "$PYTHON_APP" ] || [ ! -f "$ICON_FILE" ]; t
     exit 1
 fi
 
+set -e
+
 # 1. Clean up old build
 echo "-> Cleaning previous builds..."
 rm -rf build dist "$OUTPUT_APP"
 
 # 2. Build the app using py2app
 echo "-> Building self-contained app with py2app..."
+# Ensure dependencies are installed for the build process
+pip3 install -q -r requirements.txt
 python3 setup.py py2app --quiet
 
-# 3. py2app puts the bundle in the 'dist' folder
-mv "dist/$APP_NAME.app" ./
+# 3. Robust move: Find whatever .app was created in dist/ and move/rename it
+GENERATED_APP=$(ls -d dist/*.app | head -n 1)
+if [ -n "$GENERATED_APP" ]; then
+    echo "-> Moving $GENERATED_APP to $OUTPUT_APP..."
+    mv "$GENERATED_APP" "./$OUTPUT_APP"
+else
+    echo "Error: No .app bundle found in dist/ directory."
+    exit 1
+fi
 
 # 4. Cleanup
 rm -rf build dist
