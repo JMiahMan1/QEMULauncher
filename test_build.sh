@@ -145,11 +145,13 @@ if [ $FAIL_COUNT -eq 0 ]; then
             echo "  - Executing packaged binary with --dry-run..."
         # Use absolute path for config because py2app binaries might change CWD
         SMOKE_CONFIG_PATH="$(pwd)/smoke_test.ini"
-        echo "[VM]" > "$SMOKE_CONFIG_PATH"
-        echo "arch=aarch64" >> "$SMOKE_CONFIG_PATH"
-        echo "qemu_executable=/usr/local/bin/qemu-system-aarch64" >> "$SMOKE_CONFIG_PATH"
-        echo "disk_path=/tmp/test_disk.qcow2" >> "$SMOKE_CONFIG_PATH"
-        echo "firmware_path=/tmp/test_firmware.fd" >> "$SMOKE_CONFIG_PATH"
+        {
+            echo "[VM]"
+            echo "arch=aarch64"
+            echo "qemu_executable=/usr/local/bin/qemu-system-aarch64"
+            echo "disk_path=/tmp/test_disk.qcow2"
+            echo "firmware_path=/tmp/test_firmware.fd"
+        } > "$SMOKE_CONFIG_PATH"
         
         echo "  - Using config path: $SMOKE_CONFIG_PATH"
         
