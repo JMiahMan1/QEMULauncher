@@ -231,12 +231,14 @@ def run_launcher(config, dry_run=False):
     if net_mode == 'vmnet-shared':
         qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
         needs_root = True
-    elif net_mode == 'vmnet-bridged':
-        ifname = config.get('bridge_name', 'en0')
-        qemu_command.extend(["-netdev", f"vmnet-bridged,id=net0,ifname={ifname}", "-device", "virtio-net-pci,netdev=net0"])
+    elif net_mode == 'bridge-existing':
+        bridge_name = config.get('bridge_name', 'bridge100')
+        qemu_command.extend(["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"])
         needs_root = True
-    else: # Standard User Networking (SLIRP)
-        qemu_command.extend(["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"])
+    else:
+        # Fallback to the user's preferred bridged mode
+        qemu_command.extend(["-nic", "vmnet-bridged,ifname=en0"])
+        needs_root = True
 
     if dry_run:
         return qemu_command
