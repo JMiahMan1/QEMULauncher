@@ -50,10 +50,13 @@ jobs:
     - name: Get Version Number
       id: get_version
       run: |
+        SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
         if [[ $GITHUB_REF_TYPE == 'tag' ]]; then
           echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        elif [[ $GITHUB_REF_NAME == fix-* ]] || [[ $GITHUB_REF_NAME == fix/* ]]; then
+          echo "VERSION_NUMBER=1.0-fix-${SHORT_SHA}" >> $GITHUB_ENV
         else
-          echo "VERSION_NUMBER=dev-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+          echo "VERSION_NUMBER=1.0-dev-${SHORT_SHA}" >> $GITHUB_ENV
         fi
       shell: bash
 
