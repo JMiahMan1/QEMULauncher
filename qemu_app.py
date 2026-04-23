@@ -191,10 +191,19 @@ def run_launcher(config, dry_run=False):
             debug_print("Launch cancelled: configuration is invalid.")
         return None
 
+    # Detect disk format from extension
+    disk_path = os.path.expanduser(config['disk_path'])
+    ext = os.path.splitext(disk_path)[1].lower()
+    disk_format = "raw" # Default
+    if ext == ".qcow2": disk_format = "qcow2"
+    elif ext == ".vmdk": disk_format = "vmdk"
+    elif ext == ".vdi": disk_format = "vdi"
+    elif ext == ".vhdx": disk_format = "vhdx"
+
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
-        "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format=vmdk,file={os.path.expanduser(config['disk_path'])}",
+        "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}",
         "-display", "cocoa,show-cursor=on,zoom-to-fit=on", "-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
