@@ -2,7 +2,6 @@
 
 # --- Configuration Variables ---
 APP_NAME="QEMU Launcher"
-BUNDLE_ID="org.yourcompany.qemulauncher"
 APP_VERSION="${1:-1.0}"
 OUTPUT_APP="$APP_NAME.app"
 
@@ -10,12 +9,6 @@ OUTPUT_APP="$APP_NAME.app"
 MAIN_SCRIPT="launcher.sh"
 PYTHON_APP="qemu_app.py"
 ICON_FILE="RunLinux.icns"
-
-# --- Directory Paths inside the bundle ---
-CONTENTS_DIR="$OUTPUT_APP/Contents"
-MACOS_DIR="$CONTENTS_DIR/MacOS"
-RESOURCES_DIR="$CONTENTS_DIR/Resources"
-EXECUTABLE_NAME="QEMU Launcher"
 
 # --- Pre-flight Check ---
 if [ ! -f "$MAIN_SCRIPT" ] || [ ! -f "$PYTHON_APP" ] || [ ! -f "$ICON_FILE" ]; then
@@ -36,7 +29,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     python3 setup.py py2app --quiet
 
     # 3. Robust move: Find whatever .app was created in dist/ and move/rename it
-    GENERATED_APP=$(ls -d dist/*.app | head -n 1)
+    GENERATED_APP=$(find dist -maxdepth 1 -name "*.app" -print -quit)
     if [ -n "$GENERATED_APP" ]; then
         echo "-> Moving $GENERATED_APP to $OUTPUT_APP..."
         mv "$GENERATED_APP" "./$OUTPUT_APP"
