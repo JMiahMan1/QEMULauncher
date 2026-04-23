@@ -21,8 +21,8 @@ validate_qemu_command() {
 
     printf "  - %-60s" "$description"
 
-    # Add -snapshot and disable display for test
-    local full_test_command=("${qemu_command[@]}" "-display" "none" "-snapshot")
+    # Add -nodefaults and disable display for test
+    local full_test_command=("${qemu_command[@]}" "-display" "none" "-nodefaults")
 
     # Run command, redirecting stderr to a log file
     if gtimeout 1.5s "${full_test_command[@]}" >/dev/null 2>"$error_log"; then
