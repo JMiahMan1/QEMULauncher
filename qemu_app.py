@@ -6,8 +6,12 @@ from pathlib import Path
 import configparser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import AppKit
 import time
+
+try:
+    import AppKit
+except ImportError:
+    AppKit = None
 
 # ================================================================
 # CONFIGURATION FILE
@@ -29,24 +33,67 @@ def debug_print(*args, **kwargs):
 # UTILITY FUNCTIONS
 # ================================================================
 def get_screen_count():
+    if not AppKit: return 1
     try: return len(AppKit.NSScreen.screens())
     except Exception: return 1
 
-def move_qemu_to_screen(window_pid, screen_index=1):
+def move_qemu_to_screen(window_pid, screen_index=1, fullscreen=True):
+    if not AppKit:
+        debug_print("AppKit not available, skipping window move.")
+        return
     try:
         screens = AppKit.NSScreen.screens()
-        if screen_index >= len(screens): screen_index = 0
-        screen = screens[screen_index]
-        frame = screen.frame()
+        if screen_index >= len(screens): 
+            debug_print(f"Screen index {screen_index} out of range, using primary screen.")
+            screen_index = 0
+            
+        primary_screen = screens[0]
+        primary_height = primary_screen.frame().size.height
+        
+        target_screen = screens[screen_index]
+        frame = target_screen.frame()
+        
+        # Convert AppKit (bottom-left) to System Events (top-left)
+        # x is the same.
+        # y_se = primary_height - (y_ak + height_ak)
+        x = int(frame.origin.x)
+        y = int(primary_height - (frame.origin.y + frame.size.height))
+        w = int(frame.size.width)
+        h = int(frame.size.height)
+
+        fullscreen_cmd = 'set value of attribute "AXFullScreen" of qemuWin to true' if fullscreen else ""
+
         script = f'''
         tell application "System Events"
-            set qemuWin to first window of (first process whose unix id is {window_pid})
-            set position of qemuWin to {{ {int(frame.origin.x)}, {int(frame.origin.y)} }}
-            set size of qemuWin to {{ {int(frame.size.width)}, {int(frame.size.height)} }}
+            -- Wait for the window to appear (up to 5 seconds)
+            set windowFound to false
+            repeat 10 times
+                try
+                    if exists (first process whose unix id is {window_pid}) then
+                        set qemuProc to first process whose unix id is {window_pid}
+                        if (count of windows of qemuProc) > 0 then
+                            set qemuWin to first window of qemuProc
+                            set windowFound to true
+                            exit repeat
+                        end if
+                    end if
+                on error
+                    -- Process might not be ready yet
+                end try
+                delay 0.5
+            end repeat
+
+            if windowFound then
+                -- Move and resize
+                set position of qemuWin to {{ {x}, {y} }}
+                set size of qemuWin to {{ {w}, {h} }}
+                delay 0.5
+                {fullscreen_cmd}
+            end if
         end tell
         '''
         subprocess.run(['osascript', '-e', script], check=True, capture_output=True)
-        debug_print(f"Moved QEMU window {window_pid} to screen {screen_index}")
+        debug_print(f"Moved QEMU window {window_pid} to screen {screen_index} (Fullscreen: {fullscreen})")
     except Exception as e:
         debug_print(f"Failed to move QEMU window {window_pid}: {e}")
 
@@ -95,7 +142,8 @@ def load_config():
         'mount_tag': config.get('VM', 'mount_tag', fallback='host_share'), 'enable_webcam': config.getboolean('VM', 'enable_webcam', fallback=False),
         'network_mode': config.get('VM', 'network_mode', fallback='user'), 'bridge_name': config.get('VM', 'bridge_name', fallback='bridge100'),
         'enable_guest_agent': config.getboolean('VM', 'enable_guest_agent', fallback=False),
-        'enable_microphone': config.getboolean('VM', 'enable_microphone', fallback=False)
+        'enable_microphone': config.getboolean('VM', 'enable_microphone', fallback=False),
+        'enable_fullscreen': config.getboolean('VM', 'enable_fullscreen', fallback=True)
     }
 
 def save_config(values):
@@ -120,7 +168,7 @@ def run_launcher(config):
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format=vmdk,file={os.path.expanduser(config['disk_path'])}",
-        "-display", "cocoa,show-cursor=on,full-screen=on", "-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
+        "-display", "cocoa,show-cursor=on,zoom-to-fit=on", "-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
     if config.get('enable_webcam'): qemu_command.extend(["-device", "nec-usb-xhci,id=usb", "-device", "usb-camera,id=mycam,bus=usb.0"])
@@ -156,8 +204,10 @@ def run_launcher(config):
         proc = subprocess.Popen(qemu_command)
 
         if proc and proc.poll() is None:
+             # Wait a bit for the window to actually be created by QEMU
              time.sleep(2)
-             if get_screen_count() > 1: move_qemu_to_screen(proc.pid)
+             # Move to screen and handle fullscreen via AppleScript (more reliable than QEMU flag)
+             move_qemu_to_screen(proc.pid, screen_index=1, fullscreen=config.get('enable_fullscreen', True))
 
     except Exception as e:
         show_error("Launch Error", f"Failed to run QEMU.\n\nError: {e}"); sys.exit(1)
@@ -183,6 +233,7 @@ def run_setup_ui(existing_config=None):
     bridge_name_var = tk.StringVar(dialog, value=cfg.get('bridge_name', 'bridge100'))
     guest_agent_var = tk.BooleanVar(dialog, value=cfg.get('enable_guest_agent', False))
     mic_var = tk.BooleanVar(dialog, value=cfg.get('enable_microphone', False))
+    fullscreen_var = tk.BooleanVar(dialog, value=cfg.get('enable_fullscreen', True))
 
     frame = tk.Frame(dialog, padx=10, pady=10); frame.pack()
     
@@ -225,13 +276,14 @@ def run_setup_ui(existing_config=None):
     tk.Checkbutton(options_frame, text="Enable Webcam", variable=webcam_var).pack(side='left')
     tk.Checkbutton(options_frame, text="Enable Clipboard Sharing", variable=guest_agent_var).pack(side='left', padx=10)
     tk.Checkbutton(options_frame, text="Enable Microphone", variable=mic_var).pack(side='left', padx=10)
+    tk.Checkbutton(options_frame, text="Fullscreen", variable=fullscreen_var).pack(side='left', padx=10)
     
     def on_save():
         values = {
             'arch': arch_var.get(), 'qemu_executable': qemu_var.get(), 'disk_path': disk_var.get(), 'firmware_path': fw_var.get(),
             'shared_dir_path': share_path_var.get(), 'mount_tag': share_name_var.get(), 'enable_webcam': webcam_var.get(),
             'network_mode': net_modes[net_mode_combo.get()], 'bridge_name': bridge_name_var.get(), 'enable_guest_agent': guest_agent_var.get(),
-            'enable_microphone': mic_var.get()
+            'enable_microphone': mic_var.get(), 'enable_fullscreen': fullscreen_var.get()
         }
         if not all(values[k] for k in ['qemu_executable', 'disk_path', 'firmware_path']):
             messagebox.showerror("Error", "QEMU, Disk, and Firmware paths must be specified.", parent=dialog); return
