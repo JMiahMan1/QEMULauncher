@@ -3,8 +3,9 @@ from setuptools import setup
 APP = ["qemu_app.py"]
 DATA_FILES = []
 OPTIONS = {
-    "argv_emulation": True,
+    "argv_emulation": False,
     "iconfile": "RunLinux.icns",
+    "optimize": 0,
     "plist": {
         "CFBundleName": "QEMU Launcher",
         "CFBundleDisplayName": "QEMU Launcher",

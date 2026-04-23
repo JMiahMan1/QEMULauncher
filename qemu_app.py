@@ -1,6 +1,8 @@
 import argparse
 import configparser
 import datetime
+import encodings
+import encodings.utf_8
 import json
 import os
 import subprocess
