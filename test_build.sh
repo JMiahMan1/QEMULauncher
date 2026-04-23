@@ -159,12 +159,12 @@ if [ $FAIL_COUNT -eq 0 ]; then
         SMOKE_OUTPUT=$( "$BINARY_PATH" --config "$SMOKE_CONFIG_PATH" --dry-run 2>&1 )
         SMOKE_EXIT=$?
         
-        if [ $SMOKE_EXIT -eq 0 ]; then
-            echo "  - Binary executed successfully (imports OK)      [PASS]"
+        if [ $SMOKE_EXIT -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q "qemu-system-aarch64"; then
+            echo "  - Binary executed successfully (Output Verified) [PASS]"
         else
-            echo "  - Binary failed to execute (check dependencies)  [FAIL]"
+            echo "  - Binary failed to execute or returned bunk output [FAIL]"
             echo "--- START ERROR OUTPUT ---"
-            echo "$SMOKE_OUTPUT"
+            echo "${SMOKE_OUTPUT:-[No output captured]}"
             echo "--- END ERROR OUTPUT ---"
             rm -f "$SMOKE_CONFIG_PATH"
             exit 1

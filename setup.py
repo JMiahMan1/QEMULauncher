@@ -19,6 +19,7 @@ OPTIONS = {
     },
     "packages": ["pynput", "screeninfo", "AppKit"],
     "includes": ["encodings", "encodings.*"],
+    "site_packages": True,
 }
 
 setup(
