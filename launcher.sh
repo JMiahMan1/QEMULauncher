@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Environment Setup ---
-# Ensure Homebrew paths are available
+# Ensure Homebrew and standard paths are available everywhere
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # Setup logging for debugging
@@ -11,11 +11,13 @@ echo "--- Launcher Started at $(date) ---" >> "$LOG_FILE"
 # --- Elevation Logic ---
 if [ "$EUID" -ne 0 ]; then
     # We are not root. Use osascript to re-run this script with admin privileges.
-    # We pass the full path to this script ($0) and any arguments.
     echo "Requesting administrative privileges..." >> "$LOG_FILE"
     osascript -e "do shell script \"$0 $*\" with administrator privileges"
     exit $?
 fi
+
+# Ensure standard paths are available in the root session
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # --- Discovery ---
 # Get the directory where the script is located
@@ -68,7 +70,10 @@ if ! "$PYTHON_EXEC" -c "import tkinter" &> /dev/null; then
 fi
 
 # 3. Check for QEMU
-if ! command -v qemu-system-aarch64 &> /dev/null && ! command -v qemu-system-x86_64 &> /dev/null; then
+QEMU_BIN_AARCH64=$(command -v qemu-system-aarch64)
+QEMU_BIN_X86=$(command -v qemu-system-x86_64)
+
+if [ -z "$QEMU_BIN_AARCH64" ] && [ -z "$QEMU_BIN_X86" ]; then
     if ask_yes_no "QEMU is not installed. Install it now?"; then
         osascript -e "tell application \"Terminal\" to activate" -e "tell application \"Terminal\" to do script \"brew install qemu\""
         show_dialog "note" "Please re-run this app once the installation is finished."
