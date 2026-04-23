@@ -126,30 +126,28 @@ def show_error(title, message):
 # QEMU LAUNCHER
 # ================================================================
 def get_display_info():
-    """Detects available displays and returns their full bounds (x, y, w, h)."""
-    script = '''
-    tell application "System Events"
-        set display_list to {}
-        repeat with d in (every desktop)
-            set {x, y, w, h} to bounds of d
-            set end of display_list to {x, y, w, h}
-        end repeat
-        return display_list
-    end tell
-    '''
+    """Detects available displays using native AppKit for maximum reliability."""
+    if not AppKit:
+        return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080}]
+    
     try:
-        output = subprocess.check_output(['osascript', '-e', script], text=True).strip()
-        # Parse output like "0, 0, 1920, 1080, 1920, 0, 3840, 1080"
-        nums = [int(x.strip()) for x in output.split(',')]
+        screens = AppKit.NSScreen.screens()
         displays = []
-        for i in range(0, len(nums), 4):
+        # Primary screen is index 0. Coordinates are in points.
+        # macOS origin is bottom-left, but System Events uses top-left.
+        primary_height = screens[0].frame().size.height
+        
+        for s in screens:
+            f = s.frame()
             displays.append({
-                'x': nums[i], 'y': nums[i+1],
-                'width': nums[i+2] - nums[i],
-                'height': nums[i+3] - nums[i+1]
+                'x': int(f.origin.x),
+                'y': int(primary_height - (f.origin.y + f.size.height)), # Convert to top-left origin
+                'width': int(f.size.width),
+                'height': int(f.size.height)
             })
         return displays
-    except Exception:
+    except Exception as e:
+        debug_print(f"AppKit display detection failed: {e}")
         return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080}]
 
 def move_qemu_to_screen(screen_index=1, fullscreen=True):
@@ -163,18 +161,21 @@ def move_qemu_to_screen(screen_index=1, fullscreen=True):
 
     script = f'''
     tell application "System Events"
-        repeat 30 times -- Wait up to 15 seconds
+        repeat 30 times
             set qemuProcs to (every process whose name contains "qemu-system")
             if (count of qemuProcs) > 0 then
                 set qemuProc to item 1 of qemuProcs
                 set frontmost of qemuProc to true
                 if (count of windows of qemuProc) > 0 then
                     set qemuWin to window 1 of qemuProc
+                    -- Move and size first, then try fullscreen
                     set position of qemuWin to {{ {x}, {y} }}
                     set size of qemuWin to {{ {w}, {h} }}
                     if {str(fullscreen).lower()} then
-                        delay 1.0
-                        set value of attribute "AXFullScreen" of qemuWin to true
+                        delay 1.5
+                        try
+                            set value of attribute "AXFullScreen" of qemuWin to true
+                        end try
                     end if
                     return true
                 end if
@@ -192,7 +193,14 @@ def run_launcher(config, dry_run=False):
             debug_print("Launch cancelled: configuration is invalid.")
         return None
 
-    # 1. Detect disk format
+    # 1. Detect Displays and match resolution
+    displays = get_display_info()
+    secondary = displays[1] if len(displays) > 1 else displays[0]
+    res_width = secondary['width']
+    res_height = secondary['height']
+    debug_print(f"Targeting display: {res_width}x{res_height} at ({secondary['x']}, {secondary['y']})")
+
+    # 2. Detect disk format
     disk_path = os.path.expanduser(config['disk_path'])
     ext = os.path.splitext(disk_path)[1].lower()
     disk_format = "raw"
@@ -201,14 +209,14 @@ def run_launcher(config, dry_run=False):
     elif ext == ".vdi": disk_format = "vdi"
     elif ext == ".vhdx": disk_format = "vhdx"
 
-    # 2. Base Command
+    # 3. Base Command
     # We use cocoa's zoom-to-fit which is very stable for macOS guests.
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}",
         "-display", "cocoa,show-cursor=on,zoom-to-fit=on",
-        "-device", "virtio-gpu-pci",
+        "-device", f"virtio-gpu-pci,xres={res_width},yres={res_height}",
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
