@@ -20,23 +20,34 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Install Linting Tools
-      run: |
-        pip install ruff
-        sudo apt-get update && sudo apt-get install -y shellcheck
-    - name: Run Linters
-      run: |
-        ruff check .
-        shellcheck launcher.sh test.sh test_build.sh build.sh
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Ruff
+        run: pip install ruff
+      - name: Run Ruff
+        run: ruff check .
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+      - name: Run ShellCheck
+        run: shellcheck launcher.sh test_build.sh
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run MacOS Logic Tests
+        run: python3 tests/test_macos_logic.py
 
   build:
-    needs: lint
+    needs: test
     runs-on: macos-latest
     
     permissions:

@@ -1,0 +1,3 @@
+pyobjc-framework-Quartz; sys_platform == 'darwin'
+pynput
+screeninfo
