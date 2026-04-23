@@ -186,20 +186,22 @@ def show_error(title, message):
 # QEMU LAUNCHER
 # ================================================================
 def run_launcher(config, dry_run=False):
+    """Assembles and executes the QEMU command with intelligent elevation."""
     if not config or not config.get('disk_path') or not config.get('qemu_executable'):
         if not dry_run:
             debug_print("Launch cancelled: configuration is invalid.")
         return None
 
-    # Detect disk format from extension
+    # 1. Detect disk format from extension
     disk_path = os.path.expanduser(config['disk_path'])
     ext = os.path.splitext(disk_path)[1].lower()
-    disk_format = "raw" # Default
+    disk_format = "raw"
     if ext == ".qcow2": disk_format = "qcow2"
     elif ext == ".vmdk": disk_format = "vmdk"
     elif ext == ".vdi": disk_format = "vdi"
     elif ext == ".vhdx": disk_format = "vhdx"
 
+    # 2. Base Command
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
@@ -207,57 +209,53 @@ def run_launcher(config, dry_run=False):
         "-display", "cocoa,show-cursor=on,zoom-to-fit=on", "-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
-    if config.get('enable_webcam'): qemu_command.extend(["-device", "nec-usb-xhci,id=usb", "-device", "usb-camera,id=mycam,bus=usb.0"])
-    if config.get('shared_dir_path'): qemu_command.extend(["-fsdev", f"local,id=fsdev0,path={os.path.expanduser(config['shared_dir_path'])},security_model=mapped-xattr", "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config.get('mount_tag', 'host_share')}"])
-    if config.get('enable_guest_agent'):
-        qemu_command.extend(["-device", "virtio-serial", "-chardev", "spicevmc,id=spicechannel0,name=vdagent", "-device", "virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"])
+    # 3. Add Optional Features
+    if config.get('enable_webcam'): 
+        qemu_command.extend(["-device", "nec-usb-xhci,id=usb", "-device", "usb-camera,id=mycam,bus=usb.0"])
+    
+    if config.get('shared_dir_path'): 
+        qemu_command.extend(["-fsdev", f"local,id=fsdev0,path={os.path.expanduser(config['shared_dir_path'])},security_model=mapped-xattr", "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config.get('mount_tag', 'host_share')}"])
 
-    # --- MODIFICATION: Restored conditional logic to prefer SDL audio ---
+    # 4. Audio Setup
     sdl_supported = check_sdl_support(config['qemu_executable'])
     enable_mic = config.get('enable_microphone', False)
     backend = "sdl" if sdl_supported else "coreaudio"
-
+    audio_config = f"{backend},id=snd0,out.frequency=48000,out.channels=2,out.format=s16"
     if enable_mic:
-        debug_print(f"Enabling audio input and output via {backend}.")
-        audio_config = f"{backend},id=snd0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=1,in.format=s16"
-    else:
-        debug_print(f"Enabling audio output only via {backend}.")
-        audio_config = f"{backend},id=snd0,out.frequency=48000,out.channels=2,out.format=s16"
+        audio_config += ",in.frequency=48000,in.channels=1,in.format=s16"
     qemu_command.extend(["-audiodev", audio_config, "-device", "virtio-sound-pci,audiodev=snd0"])
 
-    network_mode = config.get('network_mode', 'user')
-    try:
-        proc = None
-        if network_mode == 'vmnet-shared':
-            qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
-        elif network_mode == 'bridge-existing':
-            bridge_name = config.get('bridge_name', 'bridge100')
-            qemu_command.extend(["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"])
-        else: # 'user' mode
-            qemu_command.extend(["-nic", "vmnet-bridged,ifname=en0"])
-        
-        debug_print("Launching QEMU with command:", " ".join(qemu_command))
-        
-        # Integrity Check
-        integrity_issues = validate_command_integrity(qemu_command)
-        for issue in integrity_issues:
-            print(f"[INTEGRITY] {issue}")
-
-        if dry_run:
-            return qemu_command
-
-        proc = subprocess.Popen(qemu_command)
-
-        if proc and proc.poll() is None:
-             # Wait a bit for the window to actually be created by QEMU
-             time.sleep(2)
-             # Move to screen and handle fullscreen via AppleScript (more reliable than QEMU flag)
-             move_qemu_to_screen(proc.pid, screen_index=1, fullscreen=config.get('enable_fullscreen', True))
-
-    except Exception as e:
-        show_error("Launch Error", f"Failed to run QEMU.\n\nError: {e}"); sys.exit(1)
+    # 5. Intelligent Network Elevation
+    net_mode = config.get('network_mode', 'user')
+    needs_root = False
     
-    sys.exit(0)
+    if net_mode == 'vmnet-shared':
+        qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
+        needs_root = True
+    elif net_mode == 'vmnet-bridged':
+        ifname = config.get('bridge_name', 'en0') 
+        qemu_command.extend(["-netdev", f"vmnet-bridged,id=net0,ifname={ifname}", "-device", "virtio-net-pci,netdev=net0"])
+        needs_root = True
+    else: # Standard User Networking (SLIRP)
+        qemu_command.extend(["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"])
+
+    if dry_run:
+        return qemu_command
+
+    # 6. Final Execution
+    try:
+        debug_print(f"Executing (needs_root={needs_root}): {' '.join(qemu_command)}")
+        if needs_root:
+            cmd_str = " ".join(f"'{arg}'" for arg in qemu_command)
+            applescript = f'do shell script "{cmd_str}" with administrator privileges'
+            proc = subprocess.Popen(["osascript", "-e", applescript])
+        else:
+            proc = subprocess.Popen(qemu_command)
+        
+        return proc
+    except Exception as e:
+        show_error("Launch Error", f"Failed to run QEMU.\n\nError: {e}")
+        return None
 
 # ================================================================
 # SETUP UI
