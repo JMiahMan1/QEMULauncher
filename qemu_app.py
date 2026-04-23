@@ -38,65 +38,6 @@ def get_screen_count():
     try: return len(AppKit.NSScreen.screens())
     except Exception: return 1
 
-def move_qemu_to_screen(window_pid, screen_index=1, fullscreen=True):
-    if not AppKit:
-        debug_print("AppKit not available, skipping window move.")
-        return
-    try:
-        screens = AppKit.NSScreen.screens()
-        if screen_index >= len(screens):
-            debug_print(f"Screen index {screen_index} out of range, using primary screen.")
-            screen_index = 0
-            
-        primary_screen = screens[0]
-        primary_height = primary_screen.frame().size.height
-        
-        target_screen = screens[screen_index]
-        frame = target_screen.frame()
-        
-        # Convert AppKit (bottom-left) to System Events (top-left)
-        # x is the same.
-        # y_se = primary_height - (y_ak + height_ak)
-        x = int(frame.origin.x)
-        y = int(primary_height - (frame.origin.y + frame.size.height))
-        w = int(frame.size.width)
-        h = int(frame.size.height)
-
-        fullscreen_cmd = 'set value of attribute "AXFullScreen" of qemuWin to true' if fullscreen else ""
-
-        script = f'''
-        tell application "System Events"
-            -- Wait for the window to appear (up to 5 seconds)
-            set windowFound to false
-            repeat 10 times
-                try
-                    if exists (first process whose unix id is {window_pid}) then
-                        set qemuProc to first process whose unix id is {window_pid}
-                        if (count of windows of qemuProc) > 0 then
-                            set qemuWin to first window of qemuProc
-                            set windowFound to true
-                            exit repeat
-                        end if
-                    end if
-                on error
-                    -- Process might not be ready yet
-                end try
-                delay 0.5
-            end repeat
-
-            if windowFound then
-                -- Move and resize
-                set position of qemuWin to {{ {x}, {y} }}
-                set size of qemuWin to {{ {w}, {h} }}
-                delay 0.5
-                {fullscreen_cmd}
-            end if
-        end tell
-        '''
-        subprocess.run(['osascript', '-e', script], check=True, capture_output=True)
-        debug_print(f"Moved QEMU window {window_pid} to screen {screen_index} (Fullscreen: {fullscreen})")
-    except Exception as e:
-        debug_print(f"Failed to move QEMU window {window_pid}: {e}")
 
 def validate_qemu_executable(executable_path):
     if not executable_path or not os.path.exists(executable_path): return False, "Executable file not found"
@@ -184,14 +125,68 @@ def show_error(title, message):
 # ================================================================
 # QEMU LAUNCHER
 # ================================================================
+def get_display_info():
+    """Detects available displays and returns info for the second one if available."""
+    script = '''
+    tell application "Image Events"
+        set display_list to {}
+        repeat with i from 1 to count of displays
+            set d to display i
+            set {w, h} to value of (property "dimensions" of d)
+            set end of display_list to {w, h}
+        end repeat
+        return display_list
+    end tell
+    '''
+    try:
+        output = subprocess.check_output(['osascript', '-e', script], text=True).strip()
+        # Parse output like "2560, 1440, 1920, 1080"
+        dims = [int(x.strip()) for x in output.split(',')]
+        displays = []
+        for i in range(0, len(dims), 2):
+            displays.append({'width': dims[i], 'height': dims[i+1]})
+        return displays
+    except Exception:
+        return [{'width': 1920, 'height': 1080}] # Default fallback
+
+def move_qemu_to_screen(pid, screen_index=1, fullscreen=True):
+    """Moves the QEMU window to a specific screen and handles fullscreen."""
+    # We use AppleScript to find the window and move it
+    script = f'''
+    tell application "System Events"
+        repeat 10 times -- Wait for window to appear
+            set procs to every process whose unix id is {pid}
+            if (count of procs) > 0 then
+                set proc to item 1 of procs
+                if exists (window 1 of proc) then
+                    set target_window to window 1 of proc
+                    if {str(fullscreen).lower()} then
+                        tell target_window to set value of attribute "AXFullScreen" to true
+                    end if
+                    return true
+                end if
+            end if
+            delay 1
+        end repeat
+    end tell
+    '''
+    subprocess.Popen(['osascript', '-e', script])
+
 def run_launcher(config, dry_run=False):
-    """Assembles and executes the QEMU command with intelligent elevation."""
+    """Assembles and executes the QEMU command with intelligent elevation and display handling."""
     if not config or not config.get('disk_path') or not config.get('qemu_executable'):
         if not dry_run:
             debug_print("Launch cancelled: configuration is invalid.")
         return None
 
-    # 1. Detect disk format from extension
+    # 1. Detect Displays and match resolution
+    displays = get_display_info()
+    secondary = displays[1] if len(displays) > 1 else displays[0]
+    res_width = secondary['width']
+    res_height = secondary['height']
+    debug_print(f"Targeting display: {res_width}x{res_height}")
+
+    # 2. Detect disk format from extension
     disk_path = os.path.expanduser(config['disk_path'])
     ext = os.path.splitext(disk_path)[1].lower()
     disk_format = "raw"
@@ -200,12 +195,14 @@ def run_launcher(config, dry_run=False):
     elif ext == ".vdi": disk_format = "vdi"
     elif ext == ".vhdx": disk_format = "vhdx"
 
-    # 2. Base Command
+    # 3. Base Command
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
         "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}",
-        "-display", "cocoa,show-cursor=on,zoom-to-fit=on", "-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
+        "-display", "cocoa,show-cursor=on,zoom-to-fit=on",
+        "-device", f"virtio-gpu-pci,xres={res_width},yres={res_height}",
+        "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
     
     # 3. Add Optional Features
@@ -252,6 +249,10 @@ def run_launcher(config, dry_run=False):
             proc = subprocess.Popen(["osascript", "-e", applescript])
         else:
             proc = subprocess.Popen(qemu_command)
+        
+        # Post-launch window management (runs in background)
+        if proc:
+             move_qemu_to_screen(proc.pid, screen_index=1, fullscreen=config.get('enable_fullscreen', True))
         
         return proc
     except Exception as e:
