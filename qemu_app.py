@@ -201,11 +201,18 @@ def load_config(path=None):
             pass
 
     # Migration Logic: If we loaded from a legacy path or non-default path, save as new JSON default
-    if config_data and not CONFIG_FILE.exists():
-        debug_print(f"Migrating config from {file_path} to {CONFIG_FILE}")
-        save_config(config_data)
+    if config_data:
+        # Merge with defaults so missing fields don't cause crashes or force setup
+        full_config = get_smart_defaults()
+        full_config.update(config_data)
 
-    return config_data
+        if not CONFIG_FILE.exists():
+            debug_print(f"Migrating config from {file_path} to {CONFIG_FILE}")
+            save_config(full_config)
+
+        return full_config
+
+    return None
 
 
 def save_config(config, path=None):
