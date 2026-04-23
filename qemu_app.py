@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import argparse
 import configparser
+import json
 import os
 import subprocess
 import sys
@@ -123,18 +125,21 @@ def get_smart_defaults(for_arch=None):
     defaults = {'qemu_executable': '', 'firmware_path': '', 'arch': '', 'shared_dir_path': str(Path.home() / "Documents"), 'mount_tag': 'host_share', 'network_mode': 'user'}
     try:
         defaults['arch'] = for_arch or ('aarch64' if os.uname().machine == 'arm64' else 'x86_64')
-        prefix = subprocess.check_output(['brew', '--prefix']).decode('utf-8').strip()
-        qemu_path = Path(prefix) / "bin" / f"qemu-system-{defaults['arch']}"
-        firmware_path = Path(prefix) / "share" / "qemu" / f"edk2-{defaults['arch']}-code.fd"
-        if qemu_path.is_file(): defaults['qemu_executable'] = str(qemu_path)
-        if firmware_path.is_file(): defaults['firmware_path'] = str(firmware_path)
+        # Check if brew exists before calling it
+        if subprocess.run(['which', 'brew'], capture_output=True).returncode == 0:
+            prefix = subprocess.check_output(['brew', '--prefix']).decode('utf-8').strip()
+            qemu_path = Path(prefix) / "bin" / f"qemu-system-{defaults['arch']}"
+            firmware_path = Path(prefix) / "share" / "qemu" / f"edk2-{defaults['arch']}-code.fd"
+            if qemu_path.is_file(): defaults['qemu_executable'] = str(qemu_path)
+            if firmware_path.is_file(): defaults['firmware_path'] = str(firmware_path)
     except Exception: pass
     return defaults
 
-def load_config():
+def load_config(config_path=None):
+    path = Path(config_path) if config_path else CONFIG_FILE
     config = configparser.ConfigParser()
-    if not CONFIG_FILE.is_file(): return None
-    config.read(CONFIG_FILE)
+    if not path.is_file(): return None
+    config.read(path)
     return {
         'arch': config.get('VM', 'arch', fallback='aarch64'),
         'qemu_executable': config.get('VM', 'qemu_executable', fallback=''), 'disk_path': config.get('VM', 'disk_path', fallback=''),
@@ -145,6 +150,26 @@ def load_config():
         'enable_microphone': config.getboolean('VM', 'enable_microphone', fallback=False),
         'enable_fullscreen': config.getboolean('VM', 'enable_fullscreen', fallback=True)
     }
+
+def validate_command_integrity(command):
+    """Checks the generated QEMU command for common errors or conflicts."""
+    issues = []
+    
+    # Check for multiple drives sharing the same index/unit without explicit setting
+    pflash_count = 0
+    for i, arg in enumerate(command):
+        if arg == "-drive":
+            params = command[i+1]
+            if "if=pflash" in params:
+                pflash_count += 1
+                if pflash_count > 2:
+                    issues.append("Error: Too many pflash drives defined (max 2 for ARM virt).")
+            
+    # Check for missing required components if it were a real run
+    if "-M" not in command:
+        issues.append("Warning: Machine type (-M) not specified.")
+        
+    return issues
 
 def save_config(values):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -160,9 +185,11 @@ def show_error(title, message):
 # ================================================================
 # QEMU LAUNCHER
 # ================================================================
-def run_launcher(config):
+def run_launcher(config, dry_run=False):
     if not config or not config.get('disk_path') or not config.get('qemu_executable'):
-        debug_print("Launch cancelled: configuration is invalid."); return
+        if not dry_run:
+            debug_print("Launch cancelled: configuration is invalid.")
+        return None
 
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
@@ -201,6 +228,15 @@ def run_launcher(config):
             qemu_command.extend(["-nic", "vmnet-bridged,ifname=en0"])
         
         debug_print("Launching QEMU with command:", " ".join(qemu_command))
+        
+        # Integrity Check
+        integrity_issues = validate_command_integrity(qemu_command)
+        for issue in integrity_issues:
+            print(f"[INTEGRITY] {issue}")
+
+        if dry_run:
+            return qemu_command
+
         proc = subprocess.Popen(qemu_command)
 
         if proc and proc.poll() is None:
@@ -312,8 +348,28 @@ def run_setup_ui(existing_config=None):
 # MAIN
 # ================================================================
 if __name__ == "__main__":
-    config = load_config()
-    if not SETUP_COMPLETE_FILE.is_file() or not config or '--config' in sys.argv:
+    parser = argparse.ArgumentParser(description="QEMU Launcher for macOS")
+    parser.add_argument("--config", dest="config_path", help="Path to a custom config.ini file")
+    parser.add_argument("--dry-run", action="store_true", help="Print the QEMU command and exit")
+    parser.add_argument("--debug", action="store_true", help="Enable debug printing")
+    parser.add_argument("--setup", action="store_true", help="Force setup UI")
+    args = parser.parse_args()
+
+    if args.debug:
+        DEBUG = True
+
+    config = load_config(args.config_path)
+    
+    if args.setup or not SETUP_COMPLETE_FILE.is_file() or not config:
         run_setup_ui(config)
+    elif args.dry_run:
+        cmd = run_launcher(config, dry_run=True)
+        if cmd:
+            print("--- DRY RUN OUTPUT ---")
+            print(json.dumps(cmd))
+            sys.exit(0)
+        else:
+            print("Error: Could not generate command. Check your configuration.")
+            sys.exit(1)
     else:
         run_launcher(config)

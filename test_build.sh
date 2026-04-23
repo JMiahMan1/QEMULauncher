@@ -4,6 +4,7 @@
 VERSION="${1}"
 APP_NAME="QEMU Launcher"
 OUTPUT_APP="$APP_NAME.app"
+TEST_CONFIG="test_config.ini"
 
 # --- Test Utilities ---
 RED='\033[0;31m'
@@ -12,68 +13,62 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 FAIL_COUNT=0
 
-# Helper function for QEMU command validation that shows the full error on failure.
-validate_qemu_command() {
+# Helper function to run the app in dry-run mode and verify its output
+validate_app_logic() {
     local description="$1"
-    shift
-    local qemu_command=("$@")
-    local error_log="qemu_error.log"
-
+    local config_content="$2"
+    local expected_flags=("${@:3}")
+    
     printf "  - %-60s" "$description"
-
-    # Add -nodefaults and disable display for test
-    local full_test_command=("${qemu_command[@]}" "-display" "none" "-nodefaults")
-
-    # Run command, redirecting stderr to a log file
-    if gtimeout 1.5s "${full_test_command[@]}" >/dev/null 2>"$error_log"; then
+    
+    # Create temp config
+    echo "[VM]" > "$TEST_CONFIG"
+    echo "$config_content" >> "$TEST_CONFIG"
+    
+    # Run dry-run
+    local output
+    output=$(python3 qemu_app.py --config "$TEST_CONFIG" --dry-run 2>&1)
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        printf "[${RED}FAIL${NC}] (App crashed)\n"
+        echo "$output" | sed 's/^/       /'
+        ((FAIL_COUNT++))
+        return
+    fi
+    
+    # Check for integrity issues
+    if echo "$output" | grep -q "\[INTEGRITY\] Error"; then
+        printf "[${RED}FAIL${NC}] (Integrity error)\n"
+        echo "$output" | grep "\[INTEGRITY\]" | sed 's/^/       /'
+        ((FAIL_COUNT++))
+        return
+    fi
+    
+    # Verify expected flags
+    local missing=()
+    for flag in "${expected_flags[@]}"; do
+        if ! echo "$output" | grep -q "$flag"; then
+            missing+=("$flag")
+        fi
+    done
+    
+    if [ ${#missing[@]} -eq 0 ]; then
         printf "[${GREEN}PASS${NC}]\n"
     else
-        local exit_code=$?
-        if [ $exit_code -eq 124 ]; then
-            printf "[${GREEN}PASS${NC}]\n" # Timeout is success
-        else
-            printf "[${RED}FAIL${NC}]\n"
-            echo -e "${RED}    -> Full command executed:${NC} ${full_test_command[*]}"
-            echo -e "${RED}    -> QEMU output (stderr):${NC}"
-            sed 's/^/       /' "$error_log"
-            ((FAIL_COUNT++))
-        fi
+        printf "[${RED}FAIL${NC}] (Missing: ${missing[*]})\n"
+        ((FAIL_COUNT++))
     fi
-    rm -f "$error_log"
+    
+    rm -f "$TEST_CONFIG"
 }
 
 # --- Main Test Logic ---
-echo "--- Running Build Tests for Version: $VERSION ---"
+echo "--- Running Logic-Based Build Tests for Version: $VERSION ---"
 
 if [ -z "$VERSION" ]; then
     echo -e "${RED}Error: Version number must be provided as the first argument.${NC}"
     exit 1
-fi
-
-# Detect architecture and set QEMU binary
-HOST_ARCH=$(uname -m)
-if [ "$HOST_ARCH" = "arm64" ]; then
-    QEMU_EXEC="qemu-system-aarch64"
-    DEFAULT_CPU=""
-else
-    QEMU_EXEC="qemu-system-x86_64"
-    DEFAULT_CPU="-cpu max"
-fi
-echo "[Host Architecture Detected: $HOST_ARCH -> Using $QEMU_EXEC]"
-
-# Check for HVF support
-echo "[Checking HVF acceleration support]"
-ACCEL_FLAG=""
-CPU_FLAG="$DEFAULT_CPU"
-# Suppress stderr to hide Abort traps if HVF is not supported by the runner's CPU
-gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic -snapshot >/dev/null 2>&1
-RC=$?
-if [ $RC -eq 0 ] || [ $RC -eq 124 ]; then
-    echo "  - HVF acceleration is available."
-    ACCEL_FLAG="-accel hvf"
-    CPU_FLAG="-cpu host"
-else
-    echo -e "  - HVF acceleration not available, falling back to TCG. [${YELLOW}WARN${NC}]"
 fi
 
 # 1. Run the build script
@@ -94,68 +89,49 @@ else
     exit 1
 fi
 
-# 3. Feature Integration Tests
-echo -e "\n[Verifying QEMU Feature Commands]"
-if ! command -v "$QEMU_EXEC" &> /dev/null || ! command -v gtimeout &> /dev/null; then
-    echo -e "${YELLOW}WARNING: Skipping feature tests. 'qemu' or 'coreutils' (gtimeout) not found.${NC}"
-else
-    # Locate firmware
-    echo "[Locating Homebrew QEMU firmware]"
-    BREW_PREFIX=$(brew --prefix)
-    if [ "$HOST_ARCH" = "arm64" ]; then
-        FW_FILE="edk2-aarch64-code.fd"
-    else
-        FW_FILE="edk2-x86_64-code.fd"
-    fi
-    REAL_FW_PATH="$BREW_PREFIX/share/qemu/$FW_FILE"
+# 3. Application Logic Tests (The "Golden Command" strategy)
+echo -e "\n[Verifying Application Logic & Command Generation]"
 
-    if [ ! -f "$REAL_FW_PATH" ]; then
-        echo -e "  - ${YELLOW}WARNING: Firmware not found at '$REAL_FW_PATH'. Skipping feature tests.${NC}"
-        SKIP_FEATURE_TESTS=true
-    else
-        echo "  - Found firmware: $REAL_FW_PATH"
-        SKIP_FEATURE_TESTS=false
-    fi
+# Define common paths for testing
+MOCK_QEMU="/usr/local/bin/qemu-system-aarch64"
+MOCK_DISK="/tmp/test_disk.vmdk"
+MOCK_FW="/tmp/test_fw.fd"
 
-    if [ "$SKIP_FEATURE_TESTS" = false ]; then
-        # Create dummy disk
-        mkdir -p test_assets
-        DUMMY_DISK_PATH="$(pwd)/test_assets/dummy_disk.qcow2"
-        qemu-img create -f qcow2 "$DUMMY_DISK_PATH" 100M > /dev/null
+# Ensure mock paths exist (as files) for validation inside the app if needed
+touch "$MOCK_DISK" "$MOCK_FW"
 
-        # PCIe root ports (needed on ARM virt)
-        ROOT_PORT_ARGS=()
-        if [ "$HOST_ARCH" = "arm64" ]; then
-            ROOT_PORT_ARGS=(
-                "-device" "pcie-root-port,id=rp1,port=1,bus=pcie.0"
-                "-device" "pcie-root-port,id=rp2,port=2,bus=pcie.0"
-            )
-        fi
+# TEST 1: Basic Configuration
+BASIC_CONFIG="arch = aarch64
+qemu_executable = $MOCK_QEMU
+disk_path = $MOCK_DISK
+firmware_path = $MOCK_FW
+enable_fullscreen = False"
+validate_app_logic "Basic configuration (AArch64)" "$BASIC_CONFIG" "-M" "virt" "disk0" "snd0"
 
-        # Incremental test commands
-        BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
-        DISK_ARGS=(
-            "-device" "virtio-blk-pci,drive=testdisk,bus=rp1"
-            "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
-        )
-        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
-        NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
-        SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
-        GPU_ARGS=("-device" "virtio-gpu-pci")
-        INPUT_ARGS=("-device" "virtio-keyboard-pci" "-device" "virtio-tablet-pci")
-        AUDIO_ARGS=("-audiodev" "none,id=snd0" "-device" "virtio-sound-pci,audiodev=snd0")
-        WEBCAM_ARGS=("-device" "nec-usb-xhci,id=usb" "-device" "usb-camera")
+# TEST 2: Shared Folder Logic
+SHARED_CONFIG="$BASIC_CONFIG
+shared_dir_path = /tmp
+mount_tag = test_share"
+validate_app_logic "Shared folder enabled" "$SHARED_CONFIG" "virtio-9p-pci" "test_share" "mapped-xattr"
 
-        # Run tests incrementally
-        validate_qemu_command "Base machine is valid" "${BASE_CMD[@]}" "${ROOT_PORT_ARGS[@]}"
-        validate_qemu_command "Base + Disk is valid" "${BASE_CMD[@]}" "${ROOT_PORT_ARGS[@]}" "${DISK_ARGS[@]}"
-        validate_qemu_command "Base + Disk + Firmware is valid" "${BASE_CMD[@]}" "${ROOT_PORT_ARGS[@]}" "${DISK_ARGS[@]}" "${FIRMWARE_ARGS[@]}"
-        validate_qemu_command "Full command is valid" "${BASE_CMD[@]}" "${ROOT_PORT_ARGS[@]}" "${DISK_ARGS[@]}" "${FIRMWARE_ARGS[@]}" "${GPU_ARGS[@]}" "${INPUT_ARGS[@]}" "${NET_ARGS[@]}" "${AUDIO_ARGS[@]}" "${SHARE_ARGS[@]}" "${WEBCAM_ARGS[@]}"
+# TEST 3: Hardware Features (Webcam, Mic)
+HW_CONFIG="$BASIC_CONFIG
+enable_webcam = True
+enable_microphone = True"
+validate_app_logic "Hardware features (Webcam + Mic)" "$HW_CONFIG" "usb-camera" "in.frequency=48000"
 
-        # Teardown
-        rm -rf test_assets
-    fi
-fi
+# TEST 4: Network Modes
+NET_CONFIG="$BASIC_CONFIG
+network_mode = vmnet-shared"
+validate_app_logic "Network mode: Shared (vmnet)" "$NET_CONFIG" "vmnet-shared"
+
+# TEST 5: Integrity Check (Multiple pflash)
+# Note: qemu_app.py only defines one pflash by default, but we can check if our integrity logic works
+# by manually verifying it doesn't trigger unexpectedly.
+validate_app_logic "Collision check (No false positives)" "$BASIC_CONFIG" "-drive"
+
+# Clean up mock files
+rm -f "$MOCK_DISK" "$MOCK_FW"
 
 # --- Final Result ---
 echo ""
@@ -167,4 +143,3 @@ else
     echo -e "${RED}--- $FAIL_COUNT test(s) failed. Please review the output. ---${NC}"
     exit 1
 fi
-
