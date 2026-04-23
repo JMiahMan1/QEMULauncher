@@ -1,17 +1,21 @@
-    __pycache__/
-    *.pyc
-    *.pyo
-    *.pyd
-    *.app
-    .Python
-    env/
-    venv/
-    pip-log.txt
-    pip-delete-this-directory.txt
-    .tox/
-    .coverage
-    .pytest_cache/
-    htmlcov/
-    .mypy_cache/
-    .vscode/
-    .DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.app
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+.vscode/
+.idea/
+.DS_Store
+*.log
+config.ini
+.setup_complete
