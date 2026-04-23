@@ -1,439 +1,252 @@
-#!/usr/bin/env python3
-import argparse
-import configparser
 import json
 import os
 import subprocess
-import sys
+import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+# Native MacOS frameworks
 try:
     import AppKit
 except ImportError:
     AppKit = None
 
 # ================================================================
-# CONFIGURATION FILE
+# CONSTANTS & CONFIG
 # ================================================================
-CONFIG_DIR = Path.home() / ".config" / "qemu_launcher"
-CONFIG_FILE = CONFIG_DIR / "config.ini"
-SETUP_COMPLETE_FILE = CONFIG_DIR / ".setup_complete"
+CONFIG_DIR = Path.home() / ".qemu_launcher"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+SETUP_COMPLETE_FILE = CONFIG_DIR / ".setup_done"
+DEBUG = False
 
-# ================================================================
-# DEBUG FLAG
-# ================================================================
-DEBUG = "--debug" in sys.argv
+def debug_print(msg):
+    if DEBUG or os.environ.get("DEBUG") == "1":
+        print(f"[DEBUG] {msg}")
 
-def debug_print(*args, **kwargs):
-    if DEBUG:
-        print("[DEBUG]", *args, **kwargs)
-
-# ================================================================
-# UTILITY FUNCTIONS
-# ================================================================
-def get_screen_count():
-    if not AppKit: return 1
-    try: return len(AppKit.NSScreen.screens())
-    except Exception: return 1
-
-
-def validate_qemu_executable(executable_path):
-    if not executable_path or not os.path.exists(executable_path): return False, "Executable file not found"
-    try:
-        result = subprocess.run([executable_path, "--version"], capture_output=True, text=True, timeout=3)
-        if result.returncode == 0: return True, ""
-        return False, f"QEMU exited with an error:\n{result.stderr.strip()}"
-    except Exception as e: return False, f"An unexpected validation error occurred: {e}"
-
-# --- MODIFICATION: Restored the SDL support check ---
-def check_sdl_support(qemu_executable):
-    """Check if SDL audio backend is available in QEMU."""
-    try:
-        result = subprocess.run(
-            [qemu_executable, "-audiodev", "help"],
-            capture_output=True, text=True, check=True, timeout=5
-        )
-        debug_print("Available audio backends:\n", result.stdout)
-        return "sdl" in result.stdout.lower()
-    except Exception as e:
-        debug_print("SDL support check failed:", e)
-        return False
-
-def get_smart_defaults(for_arch=None):
-    defaults = {'qemu_executable': '', 'firmware_path': '', 'arch': '', 'shared_dir_path': str(Path.home() / "Documents"), 'mount_tag': 'host_share', 'network_mode': 'user'}
-    try:
-        defaults['arch'] = for_arch or ('aarch64' if os.uname().machine == 'arm64' else 'x86_64')
-        # Check if brew exists before calling it
-        if subprocess.run(['which', 'brew'], capture_output=True).returncode == 0:
-            prefix = subprocess.check_output(['brew', '--prefix']).decode('utf-8').strip()
-            qemu_path = Path(prefix) / "bin" / f"qemu-system-{defaults['arch']}"
-            firmware_path = Path(prefix) / "share" / "qemu" / f"edk2-{defaults['arch']}-code.fd"
-            if qemu_path.is_file(): defaults['qemu_executable'] = str(qemu_path)
-            if firmware_path.is_file(): defaults['firmware_path'] = str(firmware_path)
-    except Exception: pass
-    return defaults
-
-def load_config(config_path=None):
-    path = Path(config_path) if config_path else CONFIG_FILE
-    config = configparser.ConfigParser()
-    if not path.is_file(): return None
-    config.read(path)
+def get_smart_defaults():
     return {
-        'arch': config.get('VM', 'arch', fallback='aarch64'),
-        'qemu_executable': config.get('VM', 'qemu_executable', fallback=''), 'disk_path': config.get('VM', 'disk_path', fallback=''),
-        'firmware_path': config.get('VM', 'firmware_path', fallback=''), 'shared_dir_path': config.get('VM', 'shared_dir_path', fallback=str(Path.home() / "Documents")),
-        'mount_tag': config.get('VM', 'mount_tag', fallback='host_share'), 'enable_webcam': config.getboolean('VM', 'enable_webcam', fallback=False),
-        'network_mode': config.get('VM', 'network_mode', fallback='user'), 'bridge_name': config.get('VM', 'bridge_name', fallback='bridge100'),
-        'enable_guest_agent': config.getboolean('VM', 'enable_guest_agent', fallback=False),
-        'enable_microphone': config.getboolean('VM', 'enable_microphone', fallback=False),
-        'enable_fullscreen': config.getboolean('VM', 'enable_fullscreen', fallback=True)
+        'arch': 'aarch64',
+        'qemu_executable': '/usr/local/bin/qemu-system-aarch64',
+        'disk_path': '',
+        'firmware_path': '',
+        'network_mode': 'vmnet-shared',
+        'enable_fullscreen': True,
+        'enable_webcam': False,
+        'enable_microphone': False,
+        'enable_guest_agent': False
     }
 
-def validate_command_integrity(command):
-    """Checks the generated QEMU command for common errors or conflicts."""
-    issues = []
-    
-    # Check for multiple drives sharing the same index/unit without explicit setting
-    pflash_count = 0
-    for i, arg in enumerate(command):
-        if arg == "-drive":
-            params = command[i+1]
-            if "if=pflash" in params:
-                pflash_count += 1
-                if pflash_count > 2:
-                    issues.append("Error: Too many pflash drives defined (max 2 for ARM virt).")
-            
-    # Check for missing required components if it were a real run
-    if "-M" not in command:
-        issues.append("Warning: Machine type (-M) not specified.")
-        
-    return issues
-
-def save_config(values):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    config = configparser.ConfigParser()
-    config['VM'] = {k: str(v) for k, v in values.items()}
-    with open(CONFIG_FILE, 'w') as f: config.write(f)
-
-def show_error(title, message):
-    root = tk.Tk(); root.withdraw()
-    messagebox.showerror(title, message)
-    root.destroy()
-
 # ================================================================
-# QEMU LAUNCHER
+# SYSTEM UTILS
 # ================================================================
-def get_display_info():
-    """Detects available displays using native AppKit for maximum reliability."""
-    if not AppKit:
-        return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080}]
-    
-    try:
-        screens = AppKit.NSScreen.screens()
-        displays = []
-        # Primary screen is index 0. Coordinates are in points.
-        # macOS origin is bottom-left, but System Events uses top-left.
-        primary_height = screens[0].frame().size.height
+
+class DisplayManager:
+    @staticmethod
+    def get_displays():
+        """Detects displays using AppKit for macOS with top-left coordinate conversion."""
+        if AppKit:
+            try:
+                screens = AppKit.NSScreen.screens()
+                # NSScreen index 0 is always the primary display.
+                primary_height = screens[0].frame().size.height
+                displays = []
+                for s in screens:
+                    f = s.frame()
+                    displays.append({
+                        'x': int(f.origin.x),
+                        'y': int(primary_height - (f.origin.y + f.size.height)),
+                        'width': int(f.size.width),
+                        'height': int(f.size.height),
+                        'is_primary': f.origin.x == 0 and f.origin.y == 0
+                    })
+                return displays
+            except Exception as e:
+                debug_print(f"AppKit detection failed: {e}")
         
-        for s in screens:
-            f = s.frame()
-            displays.append({
-                'x': int(f.origin.x),
-                'y': int(primary_height - (f.origin.y + f.size.height)), # Convert to top-left origin
-                'width': int(f.size.width),
-                'height': int(f.size.height)
-            })
-        return displays
-    except Exception as e:
-        debug_print(f"AppKit display detection failed: {e}")
-        return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080}]
+        return [{'x': 0, 'y': 0, 'width': 1920, 'height': 1080, 'is_primary': True}]
 
-def move_qemu_to_screen(screen_index=1, fullscreen=True):
-    """Moves the QEMU window to a specific screen with proper coordinates."""
-    displays = get_display_info()
-    if screen_index >= len(displays):
-        screen_index = 0
-    
-    target = displays[screen_index]
-    x, y, w, h = target['x'], target['y'], target['width'], target['height']
+    @staticmethod
+    def get_target_display():
+        """Intelligently picks the best display (the first non-primary/external one)."""
+        displays = DisplayManager.get_displays()
+        secondary = [d for d in displays if not d['is_primary']]
+        # If no secondary, use primary. Otherwise use the first secondary.
+        return secondary[0] if secondary else displays[0]
 
-    script = f'''
-    tell application "System Events"
-        repeat 30 times
-            set qemuProcs to (every process whose name contains "qemu-system")
-            if (count of qemuProcs) > 0 then
-                set qemuProc to item 1 of qemuProcs
-                set frontmost of qemuProc to true
-                if (count of windows of qemuProc) > 0 then
-                    set qemuWin to window 1 of qemuProc
-                    -- Move and size first, then try fullscreen
-                    set position of qemuWin to {{ {x}, {y} }}
-                    set size of qemuWin to {{ {w}, {h} }}
-                    if {str(fullscreen).lower()} then
-                        delay 1.5
-                        try
-                            set value of attribute "AXFullScreen" of qemuWin to true
-                        end try
+class WindowManager:
+    @staticmethod
+    def orchestrate_window(proc_name, fullscreen=True):
+        """Moves window to the target secondary screen and triggers fullscreen."""
+        target = DisplayManager.get_target_display()
+        x, y, w, h = target['x'], target['y'], target['width'], target['height']
+        
+        debug_print(f"Moving {proc_name} to {w}x{h} at {x},{y}")
+        
+        script = f'''
+        tell application "System Events"
+            repeat 30 times
+                set qProcs to (every process whose name contains "{proc_name}")
+                if (count of qProcs) > 0 then
+                    set qP to item 1 of qProcs
+                    set frontmost of qP to true
+                    if (count of windows of qP) > 0 then
+                        set qW to window 1 of qP
+                        set position of qW to {{ {x}, {y} }}
+                        set size of qW to {{ {w}, {h} }}
+                        if {str(fullscreen).lower()} then
+                            delay 1.5
+                            try
+                                set value of attribute "AXFullScreen" of qW to true
+                            end try
+                        end if
+                        return true
                     end if
-                    return true
                 end if
-            end if
-            delay 0.5
-        end repeat
-    end tell
-    '''
-    subprocess.Popen(['osascript', '-e', script])
+                delay 0.5
+            end repeat
+        end tell
+        '''
+        threading.Thread(target=lambda: subprocess.run(['osascript', '-e', script]), daemon=True).start()
+
+class GestureMonitor:
+    @staticmethod
+    def start(proc, on_trigger):
+        def monitor():
+            hover_start = None
+            while proc.poll() is None:
+                try:
+                    if AppKit:
+                        loc = AppKit.NSEvent.mouseLocation()
+                        screens = AppKit.NSScreen.screens()
+                        if screens:
+                            p_f = screens[0].frame()
+                            # Trigger: top 15px, middle 15%
+                            in_x = (p_f.size.width * 0.42) < loc.x < (p_f.size.width * 0.58)
+                            in_y = loc.y >= (p_f.size.height - 15)
+                            
+                            if in_x and in_y:
+                                if not hover_start: hover_start = time.time()
+                                elif time.time() - hover_start >= 5:
+                                    on_trigger()
+                                    hover_start = None
+                                    time.sleep(5)
+                            else:
+                                hover_start = None
+                except Exception: pass
+                time.sleep(0.5)
+        threading.Thread(target=monitor, daemon=True).start()
+
+# ================================================================
+# CORE LOGIC
+# ================================================================
+
+def load_config(path=None):
+    file_path = Path(path) if path else CONFIG_FILE
+    if not file_path.exists(): return None
+    try:
+        with open(file_path, 'r') as f: return json.load(f)
+    except Exception: return None
+
+def save_config(config, path=None):
+    file_path = Path(path) if path else CONFIG_FILE
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(file_path, 'w') as f: json.dump(config, f, indent=4)
+
+def validate_qemu_executable(path):
+    if not path: return False, "Path is empty"
+    p = Path(os.path.expanduser(path))
+    if not p.is_file(): return False, f"Not a file: {p}"
+    if not os.access(p, os.X_OK): return False, f"Not executable: {p}"
+    return True, ""
 
 def run_launcher(config, dry_run=False):
-    """Assembles and executes the QEMU command with focus on stability and display handling."""
-    if not config or not config.get('disk_path') or not config.get('qemu_executable'):
-        if not dry_run:
-            debug_print("Launch cancelled: configuration is invalid.")
-        return None
+    if not config or not config.get('disk_path'): return None
 
-    # 1. Detect Displays and match resolution
-    displays = get_display_info()
-    secondary = displays[1] if len(displays) > 1 else displays[0]
-    res_width = secondary['width']
-    res_height = secondary['height']
-    debug_print(f"Targeting display: {res_width}x{res_height} at ({secondary['x']}, {secondary['y']})")
-
-    # 2. Detect disk format
-    disk_path = os.path.expanduser(config['disk_path'])
-    ext = os.path.splitext(disk_path)[1].lower()
-    disk_format = "raw"
-    if ext == ".qcow2": disk_format = "qcow2"
-    elif ext == ".vmdk": disk_format = "vmdk"
-    elif ext == ".vdi": disk_format = "vdi"
-    elif ext == ".vhdx": disk_format = "vhdx"
-
-    # 3. Base Command
-    # We use cocoa's zoom-to-fit which is very stable for macOS guests.
-    qemu_command = [
-        config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
+    target_display = DisplayManager.get_target_display()
+    
+    qemu_cmd = [
+        config.get('qemu_executable', 'qemu-system-aarch64'),
+        "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
-        "-device", "virtio-blk-pci,drive=disk0", "-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}",
+        "-device", "virtio-blk-pci,drive=disk0",
+        "-drive", f"id=disk0,if=none,format=qcow2,file={os.path.expanduser(config['disk_path'])}",
         "-display", "cocoa,show-cursor=on,zoom-to-fit=on",
-        "-device", f"virtio-gpu-pci,xres={res_width},yres={res_height}",
+        "-device", f"virtio-gpu-pci,xres={target_display['width']},yres={target_display['height']}",
         "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"
     ]
-    
-    # 3. Add Optional Features
-    if config.get('enable_webcam'):
-        qemu_command.extend(["-device", "nec-usb-xhci,id=usb", "-device", "usb-camera,id=mycam,bus=usb.0"])
-    
-    if config.get('shared_dir_path'):
-        qemu_command.extend(["-fsdev", f"local,id=fsdev0,path={os.path.expanduser(config['shared_dir_path'])},security_model=mapped-xattr", "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config.get('mount_tag', 'host_share')}"])
 
-    # 4. Audio Setup
-    sdl_supported = check_sdl_support(config['qemu_executable'])
-    enable_mic = config.get('enable_microphone', False)
-    backend = "sdl" if sdl_supported else "coreaudio"
-    audio_config = f"{backend},id=snd0,out.frequency=48000,out.channels=2,out.format=s16"
-    if enable_mic:
-        audio_config += ",in.frequency=48000,in.channels=1,in.format=s16"
-    qemu_command.extend(["-audiodev", audio_config, "-device", "virtio-sound-pci,audiodev=snd0"])
-
-    # 5. Intelligent Network Elevation
-    net_mode = config.get('network_mode', 'user')
-    needs_root = False
-    
+    net_mode = config.get('network_mode', 'vmnet-shared')
     if net_mode == 'vmnet-shared':
-        qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
-        needs_root = True
+        qemu_cmd.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
     elif net_mode == 'bridge-existing':
-        bridge_name = config.get('bridge_name', 'bridge100')
-        qemu_command.extend(["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"])
-        needs_root = True
-    else:
-        # Fallback to the user's preferred bridged mode
-        qemu_command.extend(["-nic", "vmnet-bridged,ifname=en0"])
-        needs_root = True
+        qemu_cmd.extend(["-netdev", f"bridge,id=net0,br={config.get('bridge_name', 'bridge100')}", "-device", "virtio-net-pci,netdev=net0"])
+    else: # user
+        qemu_cmd.extend(["-nic", "user,model=virtio-net-pci"])
 
-    if dry_run:
-        return qemu_command
+    if dry_run: return qemu_cmd
 
-    # 6. Final Execution
+    needs_root = net_mode != 'user'
     try:
-        debug_print(f"Executing (needs_root={needs_root}): {' '.join(qemu_command)}")
+        debug_print(f"Launching QEMU for target: {target_display['width']}x{target_display['height']}")
         if needs_root:
-            cmd_str = " ".join(f"'{arg}'" for arg in qemu_command)
-            applescript = f'do shell script "{cmd_str}" with administrator privileges'
-            proc = subprocess.Popen(["osascript", "-e", applescript])
+            cmd_str = " ".join(f"'{a}'" for a in qemu_cmd)
+            proc = subprocess.Popen(['osascript', '-e', f'do shell script "{cmd_str}" with administrator privileges'])
         else:
-            proc = subprocess.Popen(qemu_command)
-        
-        # Post-launch window management (runs in background)
-        if proc:
-             move_qemu_to_screen(screen_index=1, fullscreen=config.get('enable_fullscreen', True))
-        
+            proc = subprocess.Popen(qemu_cmd)
+            
+        WindowManager.orchestrate_window("qemu-system", fullscreen=config.get('enable_fullscreen', True))
         return proc
     except Exception as e:
-        show_error("Launch Error", f"Failed to run QEMU.\n\nError: {e}")
+        messagebox.showerror("Error", str(e))
         return None
 
 # ================================================================
-# SETUP UI
+# UI
 # ================================================================
+
 def run_setup_ui(existing_config=None):
-    root = tk.Tk(); root.withdraw()
-    dialog = tk.Toplevel(root); dialog.title("QEMU Launcher Settings")
+    root = tk.Tk()
+    root.title("QEMU Launcher Settings")
     cfg = existing_config or get_smart_defaults()
-
-    arch_var = tk.StringVar(dialog, value=cfg.get('arch', 'aarch64'))
-    qemu_var = tk.StringVar(dialog, value=cfg.get('qemu_executable', ''))
-    disk_var = tk.StringVar(dialog, value=cfg.get('disk_path', ''))
-    fw_var = tk.StringVar(dialog, value=cfg.get('firmware_path', ''))
-    share_path_var = tk.StringVar(dialog, value=cfg.get('shared_dir_path', ''))
-    share_name_var = tk.StringVar(dialog, value=cfg.get('mount_tag', ''))
-    webcam_var = tk.BooleanVar(dialog, value=cfg.get('enable_webcam', False))
-    net_mode_var = tk.StringVar(dialog, value=cfg.get('network_mode', 'user'))
-    bridge_name_var = tk.StringVar(dialog, value=cfg.get('bridge_name', 'bridge100'))
-    guest_agent_var = tk.BooleanVar(dialog, value=cfg.get('enable_guest_agent', False))
-    mic_var = tk.BooleanVar(dialog, value=cfg.get('enable_microphone', False))
-    fullscreen_var = tk.BooleanVar(dialog, value=cfg.get('enable_fullscreen', True))
-
-    frame = tk.Frame(dialog, padx=10, pady=10); frame.pack()
     
+    entries = {}
     row = 0
+    def add_field(label, key, is_file=False):
+        nonlocal row
+        tk.Label(root, text=label).grid(row=row, column=0, sticky='w', padx=10, pady=5)
+        var = tk.StringVar(value=cfg.get(key, ""))
+        tk.Entry(root, textvariable=var, width=40).grid(row=row, column=1, padx=10)
+        if is_file:
+            tk.Button(root, text="Browse", command=lambda: var.set(filedialog.askopenfilename() or var.get())).grid(row=row, column=2, padx=5)
+        entries[key] = var; row += 1
 
-    def on_net_mode_change(event=None):
-        mode_display = net_mode_combo.get()
-        mode_value = net_modes.get(mode_display)
-        
-        bridge_name_entry.grid_remove(); bridge_name_label.grid_remove()
-        if mode_value == 'vmnet-shared':
-            net_info_label.config(text="Recommended for Wi-Fi. High performance, no setup needed.", fg="green")
-        elif mode_value == 'bridge-existing':
-            net_info_label.config(text="Uses an existing bridge (e.g., from macOS Internet Sharing).", fg="blue")
-            bridge_name_label.grid(row=row_after_net_mode, column=0, sticky='w', pady=2)
-            bridge_name_entry.grid(row=row_after_net_mode, column=1, sticky='ew', padx=5)
-        else: # user
-            net_info_label.config(text="Simple NAT networking. Good for basic internet access.", fg="black")
+    add_field("QEMU Path:", "qemu_executable", True)
+    add_field("Disk Image:", "disk_path", True)
+    add_field("EFI Firmware:", "firmware_path", True)
+    
+    tk.Label(root, text="Net Mode:").grid(row=row, column=0, sticky='w', padx=10)
+    net_var = tk.StringVar(value=cfg.get('network_mode', 'vmnet-shared'))
+    ttk.Combobox(root, textvariable=net_var, values=['vmnet-shared', 'bridge-existing', 'user'], state='readonly').grid(row=row, column=1, sticky='ew', padx=10)
+    entries['network_mode'] = net_var; row += 1
+    
+    full_var = tk.BooleanVar(value=cfg.get('enable_fullscreen', True))
+    tk.Checkbutton(root, text="Auto-Fullscreen on Launch", variable=full_var).grid(row=row, column=1, sticky='w')
+    entries['enable_fullscreen'] = full_var; row += 1
 
-    tk.Label(frame, text="Architecture:").grid(row=row, column=0, sticky='w', pady=2); arch_combo = ttk.Combobox(frame, textvariable=arch_var, values=['aarch64', 'x86_64'], state='readonly'); arch_combo.grid(row=row, column=1, sticky='ew', padx=5); row += 1
-    tk.Label(frame, text="QEMU Executable:").grid(row=row, column=0, sticky='w', pady=2); tk.Entry(frame, textvariable=qemu_var, width=50).grid(row=row, column=1, padx=5); tk.Button(frame, text="Browse...", command=lambda: qemu_var.set(filedialog.askopenfilename(parent=dialog) or qemu_var.get())).grid(row=row, column=2); row += 1
-    tk.Label(frame, text="VM Disk Image:").grid(row=row, column=0, sticky='w', pady=2); tk.Entry(frame, textvariable=disk_var, width=50).grid(row=row, column=1, padx=5); tk.Button(frame, text="Browse...", command=lambda: disk_var.set(filedialog.askopenfilename(parent=dialog) or disk_var.get())).grid(row=row, column=2); row += 1
-    tk.Label(frame, text="UEFI Firmware:").grid(row=row, column=0, sticky='w', pady=2); tk.Entry(frame, textvariable=fw_var, width=50).grid(row=row, column=1, padx=5); tk.Button(frame, text="Browse...", command=lambda: fw_var.set(filedialog.askopenfilename(parent=dialog) or fw_var.get())).grid(row=row, column=2); row += 1
-    
-    tk.Label(frame, text="Network Mode:").grid(row=row, column=0, sticky='w', pady=2)
-    net_modes = {'Shared (vmnet)': 'vmnet-shared', 'User (NAT)': 'user', 'Bridged (Existing)': 'bridge-existing'}
-    net_mode_combo = ttk.Combobox(frame, values=list(net_modes.keys()), state='readonly'); net_mode_combo.grid(row=row, column=1, sticky='ew', padx=5); net_mode_combo.bind('<<ComboboxSelected>>', on_net_mode_change); row += 1
-    for display, value in net_modes.items():
-        if value == net_mode_var.get(): net_mode_combo.set(display)
-    
-    net_info_label = tk.Label(frame, text="", font=('Helvetica', 10)); net_info_label.grid(row=row, column=1, columnspan=2, sticky='w', padx=5, pady=(0, 5)); row += 1
-    
-    row_after_net_mode = row
-    bridge_name_label = tk.Label(frame, text="Bridge Name:"); bridge_name_entry = tk.Entry(frame, textvariable=bridge_name_var, width=50); row += 1
+    def launch():
+        config = {k: (v.get() if hasattr(v, 'get') else v) for k, v in entries.items()}
+        for k in ['qemu_executable', 'disk_path', 'firmware_path']:
+            if not config[k]: messagebox.showerror("Error", f"{k} is required"); return
+        save_config(config); SETUP_COMPLETE_FILE.touch(); root.withdraw()
+        p = run_launcher(config)
+        if p: GestureMonitor.start(p, lambda: root.after(0, lambda: (root.deiconify(), root.lift(), root.focus_force())))
 
-    tk.Label(frame, text="Shared Directory:").grid(row=row, column=0, sticky='w', pady=2); tk.Entry(frame, textvariable=share_path_var, width=50).grid(row=row, column=1, padx=5); tk.Button(frame, text="Browse...", command=lambda: share_path_var.set(filedialog.askdirectory(parent=dialog) or share_path_var.get())).grid(row=row, column=2); row += 1
-    tk.Label(frame, text="Share Name (Tag):").grid(row=row, column=0, sticky='w', pady=2); tk.Entry(frame, textvariable=share_name_var, width=50).grid(row=row, column=1, padx=5); row += 1
-    
-    options_frame = tk.LabelFrame(frame, text="Hardware & Integration", padx=5, pady=5); options_frame.grid(row=row, column=0, columnspan=3, sticky='ew', pady=(10,0)); row += 1
-    tk.Checkbutton(options_frame, text="Enable Webcam", variable=webcam_var).pack(side='left')
-    tk.Checkbutton(options_frame, text="Enable Clipboard Sharing", variable=guest_agent_var).pack(side='left', padx=10)
-    tk.Checkbutton(options_frame, text="Enable Microphone", variable=mic_var).pack(side='left', padx=10)
-    tk.Checkbutton(options_frame, text="Fullscreen", variable=fullscreen_var).pack(side='left', padx=10)
-    
-    def on_save():
-        values = {
-            'arch': arch_var.get(), 'qemu_executable': qemu_var.get(), 'disk_path': disk_var.get(), 'firmware_path': fw_var.get(),
-            'shared_dir_path': share_path_var.get(), 'mount_tag': share_name_var.get(), 'enable_webcam': webcam_var.get(),
-            'network_mode': net_modes[net_mode_combo.get()], 'bridge_name': bridge_name_var.get(), 'enable_guest_agent': guest_agent_var.get(),
-            'enable_microphone': mic_var.get(), 'enable_fullscreen': fullscreen_var.get()
-        }
-        if not all(values[k] for k in ['qemu_executable', 'disk_path', 'firmware_path']):
-            messagebox.showerror("Error", "QEMU, Disk, and Firmware paths must be specified.", parent=dialog); return
-        is_valid, error_msg = validate_qemu_executable(values['qemu_executable'])
-        if not is_valid: messagebox.showerror("QEMU Validation Failed", f"Invalid QEMU executable.\n\n{error_msg}", parent=dialog); return
-        
-        save_config(values)
-        SETUP_COMPLETE_FILE.touch(exist_ok=True)
-        dialog.withdraw() # Hide the dialog instead of destroying it
-        
-        proc = run_launcher(load_config())
-        
-        if proc:
-            import threading
-            import time
-            def monitor_mouse():
-                hover_start = None
-                while proc.poll() is None:
-                    try:
-                        if AppKit:
-                            loc = AppKit.NSEvent.mouseLocation()
-                            screens = AppKit.NSScreen.screens()
-                            if screens:
-                                primary = screens[0].frame()
-                                screen_w = primary.size.width
-                                screen_h = primary.size.height
-                                
-                                # Zone: top 10 pixels, middle 10%
-                                in_x = (screen_w * 0.45) < loc.x < (screen_w * 0.55)
-                                in_y = loc.y >= (screen_h - 10)
-                                
-                                if in_x and in_y:
-                                    if hover_start is None:
-                                        hover_start = time.time()
-                                    elif time.time() - hover_start >= 5:
-                                        # Restore UI
-                                        dialog.after(0, lambda: (dialog.deiconify(), dialog.lift(), dialog.focus_force()))
-                                        hover_start = None
-                                        time.sleep(5) # Cooldown
-                                else:
-                                    hover_start = None
-                    except Exception: pass
-                    time.sleep(0.5)
-            threading.Thread(target=monitor_mouse, daemon=True).start()
-
-    button_frame = tk.Frame(frame); button_frame.grid(row=row, column=1, columnspan=2, sticky='e', pady=(10,0))
-    tk.Button(button_frame, text="Save and Launch", command=on_save).pack(side='right', padx=5)
-    tk.Button(button_frame, text="Cancel", command=root.destroy).pack(side='right')
-    dialog.protocol("WM_DELETE_WINDOW", root.destroy)
-    on_net_mode_change()
-    
-    dialog.update_idletasks()
-    x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-    y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-    dialog.geometry(f'+{x}+{y}')
-    
+    tk.Button(root, text="Launch VM", command=launch, bg="#28a745", fg="white", font=("Arial", 12, "bold")).grid(row=row, column=0, columnspan=3, pady=20)
     root.mainloop()
 
-# ================================================================
-# MAIN
-# ================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="QEMU Launcher for macOS")
-    parser.add_argument("--config", dest="config_path", help="Path to a custom config.ini file")
-    parser.add_argument("--dry-run", action="store_true", help="Print the QEMU command and exit")
-    parser.add_argument("--debug", action="store_true", help="Enable debug printing")
-    parser.add_argument("--setup", action="store_true", help="Force setup UI")
-    args = parser.parse_args()
-
-    if args.debug:
-        DEBUG = True
-
-    config = load_config(args.config_path)
-    
-    if args.dry_run:
-        if not config:
-            # If no config exists, create a minimal one for dry-run validation
-            config = get_smart_defaults()
-            config['disk_path'] = "/tmp/test.vmdk" # Dummy path for validation
-            config['firmware_path'] = "/tmp/fw.fd"
-            
-        cmd = run_launcher(config, dry_run=True)
-        if cmd:
-            print("--- DRY RUN OUTPUT ---")
-            print(json.dumps(cmd))
-            sys.exit(0)
-        else:
-            print("Error: Could not generate command. Check your configuration.")
-            sys.exit(1)
-    elif args.setup or not SETUP_COMPLETE_FILE.is_file() or not config:
-        run_setup_ui(config)
-    else:
-        run_launcher(config)
+    c = load_config()
+    if not c or not SETUP_COMPLETE_FILE.exists(): run_setup_ui(c)
+    else: run_launcher(c)
