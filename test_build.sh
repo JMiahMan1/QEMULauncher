@@ -143,13 +143,15 @@ if [ $FAIL_COUNT -eq 0 ]; then
         BINARY_PATH="./$OUTPUT_APP/Contents/MacOS/QEMU Launcher"
         if [[ -f "$BINARY_PATH" ]]; then
             echo "  - Executing packaged binary with --dry-run..."
-        # We run with --dry-run and a dummy config to see if it even starts up
-        # This catches "No module named X" errors
-        echo "[VM]" > smoke_test.ini
-        echo "arch=aarch64" >> smoke_test.ini
+        # Use absolute path for config because py2app binaries might change CWD
+        SMOKE_CONFIG_PATH="$(pwd)/smoke_test.ini"
+        echo "[VM]" > "$SMOKE_CONFIG_PATH"
+        echo "arch=aarch64" >> "$SMOKE_CONFIG_PATH"
+        
+        echo "  - Using config path: $SMOKE_CONFIG_PATH"
         
         # Capture output so we can see what went wrong on failure
-        SMOKE_OUTPUT=$( "$BINARY_PATH" --config smoke_test.ini --dry-run 2>&1 )
+        SMOKE_OUTPUT=$( "$BINARY_PATH" --config "$SMOKE_CONFIG_PATH" --dry-run 2>&1 )
         SMOKE_EXIT=$?
         
         if [ $SMOKE_EXIT -eq 0 ]; then
@@ -159,10 +161,10 @@ if [ $FAIL_COUNT -eq 0 ]; then
             echo "--- START ERROR OUTPUT ---"
             echo "$SMOKE_OUTPUT"
             echo "--- END ERROR OUTPUT ---"
-            rm -f smoke_test.ini
+            rm -f "$SMOKE_CONFIG_PATH"
             exit 1
         fi
-        rm -f smoke_test.ini
+        rm -f "$SMOKE_CONFIG_PATH"
         else
             echo "  - Packaged binary not found at $BINARY_PATH [FAIL]"
             exit 1
