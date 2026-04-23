@@ -5,7 +5,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -210,10 +209,10 @@ def run_launcher(config, dry_run=False):
     ]
     
     # 3. Add Optional Features
-    if config.get('enable_webcam'): 
+    if config.get('enable_webcam'):
         qemu_command.extend(["-device", "nec-usb-xhci,id=usb", "-device", "usb-camera,id=mycam,bus=usb.0"])
     
-    if config.get('shared_dir_path'): 
+    if config.get('shared_dir_path'):
         qemu_command.extend(["-fsdev", f"local,id=fsdev0,path={os.path.expanduser(config['shared_dir_path'])},security_model=mapped-xattr", "-device", f"virtio-9p-pci,fsdev=fsdev0,mount_tag={config.get('mount_tag', 'host_share')}"])
 
     # 4. Audio Setup
@@ -233,7 +232,7 @@ def run_launcher(config, dry_run=False):
         qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
         needs_root = True
     elif net_mode == 'vmnet-bridged':
-        ifname = config.get('bridge_name', 'en0') 
+        ifname = config.get('bridge_name', 'en0')
         qemu_command.extend(["-netdev", f"vmnet-bridged,id=net0,ifname={ifname}", "-device", "virtio-net-pci,netdev=net0"])
         needs_root = True
     else: # Standard User Networking (SLIRP)
