@@ -8,11 +8,16 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PAT
 LOG_FILE="/tmp/qemu_launcher.log"
 echo "--- Launcher Started at $(date) ---" >> "$LOG_FILE"
 
+# Resolve the absolute path to this script
+ABS_SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+echo "Absolute Path: $ABS_SCRIPT_PATH" >> "$LOG_FILE"
+
 # --- Elevation Logic ---
 if [ "$EUID" -ne 0 ]; then
     # We are not root. Use osascript to re-run this script with admin privileges.
-    echo "Requesting administrative privileges..." >> "$LOG_FILE"
-    osascript -e "do shell script \"$0 $*\" with administrator privileges"
+    echo "Requesting administrative privileges for: $ABS_SCRIPT_PATH" >> "$LOG_FILE"
+    # We use quoted strings for the path and arguments to handle spaces correctly
+    osascript -e "do shell script \"'$ABS_SCRIPT_PATH' $*\" with administrator privileges"
     exit $?
 fi
 
