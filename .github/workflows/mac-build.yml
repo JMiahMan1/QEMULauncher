@@ -74,6 +74,13 @@ jobs:
         VERSION="${{ env.VERSION_NUMBER }}"
         zip -r -q "${APP_NAME}-${VERSION}-macOS.zip" "${APP_NAME}.app"
         
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: "${APP_NAME}-${{ env.VERSION_NUMBER }}-macOS"
+        path: "*.zip"
+        retention-days: 5
+        
     - name: Create Release
       if: github.ref_type == 'tag'
       uses: softprops/action-gh-release@v2
