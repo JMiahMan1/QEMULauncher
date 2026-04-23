@@ -150,17 +150,32 @@ def get_display_info():
         return [{'width': 1920, 'height': 1080}] # Default fallback
 
 def move_qemu_to_screen(screen_index=1, fullscreen=True):
-    """Moves the QEMU window to a specific screen by process name."""
-    # We look for the process by name since PIDs change with elevation
+    """Moves the QEMU window to a specific screen and handles focus."""
+    displays = get_display_info()
+    if screen_index >= len(displays):
+        screen_index = 0
+    
+    target = displays[screen_index]
+    # AppKit uses bottom-left origin, System Events uses top-left.
+    # For now we'll assume standard layout or use simple offsets.
+    x = 0 if screen_index == 0 else displays[0]['width']
+    y = 0
+    w = target['width']
+    h = target['height']
+
     script = f'''
     tell application "System Events"
-        repeat 20 times -- Wait up to 10 seconds for window
+        repeat 20 times
             set qemuProcs to (every process whose name contains "qemu-system")
             if (count of qemuProcs) > 0 then
                 set qemuProc to item 1 of qemuProcs
+                set frontmost of qemuProc to true
                 if (count of windows of qemuProc) > 0 then
                     set qemuWin to window 1 of qemuProc
+                    set position of qemuWin to {{ {x}, {y} }}
+                    set size of qemuWin to {{ {w}, {h} }}
                     if {str(fullscreen).lower()} then
+                        delay 0.5
                         tell qemuWin to set value of attribute "AXFullScreen" to true
                     end if
                     return true
@@ -173,7 +188,7 @@ def move_qemu_to_screen(screen_index=1, fullscreen=True):
     subprocess.Popen(['osascript', '-e', script])
 
 def run_launcher(config, dry_run=False):
-    """Assembles and executes the QEMU command with intelligent elevation and display handling."""
+    """Assembles and executes the QEMU command with focus on stability and display handling."""
     if not config or not config.get('disk_path') or not config.get('qemu_executable'):
         if not dry_run:
             debug_print("Launch cancelled: configuration is invalid.")
@@ -188,7 +203,8 @@ def run_launcher(config, dry_run=False):
     elif ext == ".vdi": disk_format = "vdi"
     elif ext == ".vhdx": disk_format = "vhdx"
 
-    # 2. Base Command (Removed xres/yres to prevent scaling lock)
+    # 2. Base Command
+    # We use cocoa's zoom-to-fit which is very stable for macOS guests.
     qemu_command = [
         config['qemu_executable'], "-M", "virt", "-accel", "hvf", "-cpu", "host", "-smp", "8", "-m", "24G",
         "-drive", f"if=pflash,format=raw,readonly=on,file={os.path.expanduser(config['firmware_path'])}",
