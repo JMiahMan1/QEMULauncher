@@ -137,7 +137,6 @@ rm -f "$MOCK_DISK" "$MOCK_FW"
 echo ""
 if [ $FAIL_COUNT -eq 0 ]; then
     echo -e "${GREEN}--- All tests passed successfully! ---${NC}"
-    rm -rf "$OUTPUT_APP"
     exit 0
 else
     echo -e "${RED}--- $FAIL_COUNT test(s) failed. Please review the output. ---${NC}"
