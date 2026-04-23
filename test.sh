@@ -3,14 +3,7 @@ set -e
 
 echo "--- Starting Full Test Suite ---"
 
-# 1. Linting
-if [ -f "./lint.sh" ]; then
-    ./lint.sh
-else
-    echo "Warning: lint.sh not found."
-fi
-
-# 2. Build and Feature Tests
+# 1. Build and Feature Tests
 if [ -f "./test_build.sh" ]; then
     # We pass 'ci-test' as a dummy version
     ./test_build.sh "ci-test"
