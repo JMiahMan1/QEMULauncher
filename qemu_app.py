@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
+import configparser
+import os
 import subprocess
 import sys
-import os
-from pathlib import Path
-import configparser
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import time
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 try:
     import AppKit
@@ -43,7 +43,7 @@ def move_qemu_to_screen(window_pid, screen_index=1, fullscreen=True):
         return
     try:
         screens = AppKit.NSScreen.screens()
-        if screen_index >= len(screens): 
+        if screen_index >= len(screens):
             debug_print(f"Screen index {screen_index} out of range, using primary screen.")
             screen_index = 0
             
@@ -237,7 +237,7 @@ def run_setup_ui(existing_config=None):
 
     frame = tk.Frame(dialog, padx=10, pady=10); frame.pack()
     
-    row = 0 
+    row = 0
 
     def on_net_mode_change(event=None):
         mode_display = net_mode_combo.get()

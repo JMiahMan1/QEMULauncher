@@ -4,11 +4,30 @@ on:
   push:
     branches:
       - 'main'
+      - 'fix-fullscreen-macos'
     tags:
       - '*'
+  pull_request:
+    branches:
+      - 'main'
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install Ruff
+      run: pip install ruff
+    - name: Run Ruff
+      run: ruff check .
+
   build:
+    needs: lint
     runs-on: macos-latest
     
     permissions:
@@ -24,54 +43,23 @@ jobs:
       
     - name: Install and Verify Dependencies
       run: |
-        echo "--- Verifying Homebrew ---"
-        if ! command -v brew; then
-          echo "Homebrew command not found, cannot proceed."
-          exit 1
-        fi
-        
-        echo "--- Installing qemu, python-tk, and coreutils ---"
         brew install qemu python-tk coreutils
+        pip install ruff
         
-        echo "--- Verifying Python3 and Tkinter ---"
-        if ! command -v python3; then
-          echo "Python 3 command not found after install."
-          exit 1
-        fi
-        python3 -c "import tkinter" || { echo "Tkinter failed to import after installing python-tk."; exit 1; }
-
-        echo "--- Verifying QEMU ---"
-        if ! command -v qemu-system-aarch64 && ! command -v qemu-system-x86_64; then
-          echo "Neither qemu-system-aarch64 nor qemu-system-x86_64 found after install."
-          exit 1
-        fi
-
-        echo "--- Verifying coreutils (gtimeout) ---"
-        if ! command -v gtimeout; then
-          echo "gtimeout command not found after installing coreutils."
-          exit 1
-        fi
-      
     - name: Get Version Number
       id: get_version
       run: |
-        # Use tag if it exists, otherwise use commit SHA for a development version
         if [[ $GITHUB_REF_TYPE == 'tag' ]]; then
           echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
         else
           echo "VERSION_NUMBER=dev-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
         fi
       shell: bash
-      
-    - name: Run Build Script
+
+    - name: Run Full Test Suite (Lint + Build)
       run: |
-        chmod +x build.sh
-        ./build.sh ${{ env.VERSION_NUMBER }}
-        
-    - name: Run Build and Feature Tests
-      run: |
-        chmod +x test_build.sh
-        ./test_build.sh ${{ env.VERSION_NUMBER }}
+        chmod +x test.sh lint.sh test_build.sh build.sh
+        ./test.sh
         
     - name: Package Application
       run: |
