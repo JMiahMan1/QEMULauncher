@@ -137,6 +137,31 @@ rm -f "$MOCK_DISK" "$MOCK_FW"
 # --- Final Result ---
 echo ""
 if [ $FAIL_COUNT -eq 0 ]; then
+    # 5. Runtime Smoke Test (macOS only)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "[Runtime Smoke Test]"
+        BINARY_PATH="./$OUTPUT_APP/Contents/MacOS/QEMU Launcher"
+        if [[ -f "$BINARY_PATH" ]]; then
+            echo "  - Executing packaged binary with --dry-run..."
+            # We run with --dry-run and a dummy config to see if it even starts up
+            # This catches "No module named X" errors
+            echo "[VM]" > smoke_test.ini
+            echo "arch=aarch64" >> smoke_test.ini
+            if "$BINARY_PATH" --config smoke_test.ini --dry-run > /dev/null 2>&1; then
+                echo "  - Binary executed successfully (imports OK)      [PASS]"
+            else
+                echo "  - Binary failed to execute (check dependencies)  [FAIL]"
+                rm -f smoke_test.ini
+                exit 1
+            fi
+            rm -f smoke_test.ini
+        else
+            echo "  - Packaged binary not found at $BINARY_PATH [FAIL]"
+            exit 1
+        fi
+    fi
+
+    echo ""
     echo -e "${GREEN}--- All tests passed successfully! ---${NC}"
     exit 0
 else
