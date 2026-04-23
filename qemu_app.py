@@ -360,9 +360,13 @@ if __name__ == "__main__":
 
     config = load_config(args.config_path)
     
-    if args.setup or not SETUP_COMPLETE_FILE.is_file() or not config:
-        run_setup_ui(config)
-    elif args.dry_run:
+    if args.dry_run:
+        if not config:
+            # If no config exists, create a minimal one for dry-run validation
+            config = get_smart_defaults()
+            config['disk_path'] = "/tmp/test.vmdk" # Dummy path for validation
+            config['firmware_path'] = "/tmp/fw.fd"
+            
         cmd = run_launcher(config, dry_run=True)
         if cmd:
             print("--- DRY RUN OUTPUT ---")
@@ -371,5 +375,7 @@ if __name__ == "__main__":
         else:
             print("Error: Could not generate command. Check your configuration.")
             sys.exit(1)
+    elif args.setup or not SETUP_COMPLETE_FILE.is_file() or not config:
+        run_setup_ui(config)
     else:
         run_launcher(config)
