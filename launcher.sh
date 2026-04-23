@@ -6,7 +6,16 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PAT
 
 # Setup logging for debugging
 LOG_FILE="/tmp/qemu_launcher.log"
-echo "--- Launcher Started at $(date) ---" > "$LOG_FILE"
+echo "--- Launcher Started at $(date) ---" >> "$LOG_FILE"
+
+# --- Elevation Logic ---
+if [ "$EUID" -ne 0 ]; then
+    # We are not root. Use osascript to re-run this script with admin privileges.
+    # We pass the full path to this script ($0) and any arguments.
+    echo "Requesting administrative privileges..." >> "$LOG_FILE"
+    osascript -e "do shell script \"$0 $*\" with administrator privileges"
+    exit $?
+fi
 
 # --- Discovery ---
 # Get the directory where the script is located
