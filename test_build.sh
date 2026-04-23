@@ -143,18 +143,26 @@ if [ $FAIL_COUNT -eq 0 ]; then
         BINARY_PATH="./$OUTPUT_APP/Contents/MacOS/QEMU Launcher"
         if [[ -f "$BINARY_PATH" ]]; then
             echo "  - Executing packaged binary with --dry-run..."
-            # We run with --dry-run and a dummy config to see if it even starts up
-            # This catches "No module named X" errors
-            echo "[VM]" > smoke_test.ini
-            echo "arch=aarch64" >> smoke_test.ini
-            if "$BINARY_PATH" --config smoke_test.ini --dry-run > /dev/null 2>&1; then
-                echo "  - Binary executed successfully (imports OK)      [PASS]"
-            else
-                echo "  - Binary failed to execute (check dependencies)  [FAIL]"
-                rm -f smoke_test.ini
-                exit 1
-            fi
+        # We run with --dry-run and a dummy config to see if it even starts up
+        # This catches "No module named X" errors
+        echo "[VM]" > smoke_test.ini
+        echo "arch=aarch64" >> smoke_test.ini
+        
+        # Capture output so we can see what went wrong on failure
+        SMOKE_OUTPUT=$( "$BINARY_PATH" --config smoke_test.ini --dry-run 2>&1 )
+        SMOKE_EXIT=$?
+        
+        if [ $SMOKE_EXIT -eq 0 ]; then
+            echo "  - Binary executed successfully (imports OK)      [PASS]"
+        else
+            echo "  - Binary failed to execute (check dependencies)  [FAIL]"
+            echo "--- START ERROR OUTPUT ---"
+            echo "$SMOKE_OUTPUT"
+            echo "--- END ERROR OUTPUT ---"
             rm -f smoke_test.ini
+            exit 1
+        fi
+        rm -f smoke_test.ini
         else
             echo "  - Packaged binary not found at $BINARY_PATH [FAIL]"
             exit 1
