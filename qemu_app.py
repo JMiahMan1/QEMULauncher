@@ -1,8 +1,6 @@
 import argparse
 import configparser
 import datetime
-import encodings
-import encodings.utf_8
 import json
 import os
 import subprocess
@@ -17,6 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 os.environ["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ.get('PATH', '')}"
 LOG_FILE = Path("/tmp/qemu_launcher.log")
 
+
 def log_message(msg):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -24,6 +23,7 @@ def log_message(msg):
             f.write(f"[{timestamp}] {msg}\n")
     except Exception:
         pass
+
 
 # Initialize log
 try:
