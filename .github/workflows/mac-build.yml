@@ -26,10 +26,14 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    - name: Install Ruff
-      run: pip install ruff
-    - name: Run Ruff
-      run: ruff check .
+    - name: Install Linting Tools
+      run: |
+        pip install ruff
+        sudo apt-get update && sudo apt-get install -y shellcheck
+    - name: Run Linters
+      run: |
+        ruff check .
+        shellcheck launcher.sh test.sh test_build.sh build.sh
 
   build:
     needs: lint
