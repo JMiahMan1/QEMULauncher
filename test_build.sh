@@ -65,6 +65,7 @@ echo "[Host Architecture Detected: $HOST_ARCH -> Using $QEMU_EXEC]"
 echo "[Checking HVF acceleration support]"
 ACCEL_FLAG=""
 CPU_FLAG="$DEFAULT_CPU"
+# Suppress stderr to hide Abort traps if HVF is not supported by the runner's CPU
 gtimeout 1s "$QEMU_EXEC" -M virt -accel hvf -cpu host -nographic -snapshot >/dev/null 2>&1
 RC=$?
 if [ $RC -eq 0 ] || [ $RC -eq 124 ]; then
@@ -126,18 +127,18 @@ else
         ROOT_PORT_ARGS=()
         if [ "$HOST_ARCH" = "arm64" ]; then
             ROOT_PORT_ARGS=(
-                "-device" "pcie-root-port,id=rp1,port=1,bus=pcie.0,addr=0x1"
-                "-device" "pcie-root-port,id=rp2,port=2,bus=pcie.0,addr=0x2"
+                "-device" "pcie-root-port,id=rp1,port=1,bus=pcie.0"
+                "-device" "pcie-root-port,id=rp2,port=2,bus=pcie.0"
             )
         fi
 
         # Incremental test commands
         BASE_CMD=("$QEMU_EXEC" "-M" "virt" "$ACCEL_FLAG" "$CPU_FLAG" "-m" "512M")
         DISK_ARGS=(
-            "-device" "virtio-blk-device,drive=testdisk,bus=rp1"
+            "-device" "virtio-blk-pci,drive=testdisk,bus=rp1"
             "-drive" "id=testdisk,if=none,format=qcow2,file=$DUMMY_DISK_PATH"
         )
-        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH,bus=rp2")
+        FIRMWARE_ARGS=("-drive" "if=pflash,format=raw,readonly=on,file=$REAL_FW_PATH")
         NET_ARGS=("-netdev" "user,id=n0" "-device" "virtio-net-pci,netdev=n0")
         SHARE_ARGS=("-fsdev" "local,id=fs0,path=.,security_model=none" "-device" "virtio-9p-pci,fsdev=fs0,mount_tag=test")
         GPU_ARGS=("-device" "virtio-gpu-pci")
