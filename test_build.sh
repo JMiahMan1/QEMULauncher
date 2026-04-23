@@ -48,7 +48,7 @@ validate_app_logic() {
     # Verify expected flags
     local missing=()
     for flag in "${expected_flags[@]}"; do
-        if ! echo "$output" | grep -q "$flag"; then
+        if [[ ! "$output" == *"$flag"* ]]; then
             missing+=("$flag")
         fi
     done
