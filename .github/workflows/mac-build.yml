@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Install Ruff
         run: pip install ruff
       - name: Run Ruff
@@ -42,7 +42,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Run MacOS Logic Tests
         run: python3 tests/test_macos_logic.py
 
@@ -60,10 +60,15 @@ jobs:
     - name: Set Homebrew PATH
       run: |
         echo "PATH=/opt/homebrew/bin:/usr/local/bin:$PATH" >> $GITHUB_ENV
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
       
     - name: Install and Verify Dependencies
       run: |
-        brew install qemu python-tk coreutils
+        brew install qemu coreutils
         pip install ruff
         pip install -r requirements.txt
         

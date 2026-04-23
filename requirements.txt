@@ -1,6 +1,5 @@
 pynput
 screeninfo
-pyobjc-framework-AppKit
-pyobjc-framework-Quartz
+pyobjc
 py2app
 ruff
