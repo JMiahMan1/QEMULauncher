@@ -344,8 +344,42 @@ def run_setup_ui(existing_config=None):
         
         save_config(values)
         SETUP_COMPLETE_FILE.touch(exist_ok=True)
-        root.destroy()
-        run_launcher(load_config())
+        dialog.withdraw() # Hide the dialog instead of destroying it
+        
+        proc = run_launcher(load_config())
+        
+        if proc:
+            import threading
+            import time
+            def monitor_mouse():
+                hover_start = None
+                while proc.poll() is None:
+                    try:
+                        if AppKit:
+                            loc = AppKit.NSEvent.mouseLocation()
+                            screens = AppKit.NSScreen.screens()
+                            if screens:
+                                primary = screens[0].frame()
+                                screen_w = primary.size.width
+                                screen_h = primary.size.height
+                                
+                                # Zone: top 10 pixels, middle 10%
+                                in_x = (screen_w * 0.45) < loc.x < (screen_w * 0.55)
+                                in_y = loc.y >= (screen_h - 10)
+                                
+                                if in_x and in_y:
+                                    if hover_start is None:
+                                        hover_start = time.time()
+                                    elif time.time() - hover_start >= 5:
+                                        # Restore UI
+                                        dialog.after(0, lambda: (dialog.deiconify(), dialog.lift(), dialog.focus_force()))
+                                        hover_start = None
+                                        time.sleep(5) # Cooldown
+                                else:
+                                    hover_start = None
+                    except Exception: pass
+                    time.sleep(0.5)
+            threading.Thread(target=monitor_mouse, daemon=True).start()
 
     button_frame = tk.Frame(frame); button_frame.grid(row=row, column=1, columnspan=2, sticky='e', pady=(10,0))
     tk.Button(button_frame, text="Save and Launch", command=on_save).pack(side='right', padx=5)
