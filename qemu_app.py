@@ -367,7 +367,10 @@ if __name__ == "__main__":
         else:
             print("Error: No config found for dry-run")
             sys.exit(1)
-    elif args.setup or not c or not SETUP_COMPLETE_FILE.exists():
+    elif args.setup or not c:
         run_setup_ui(c)
     else:
+        # If config exists but setup_done doesn't, create it now that we're successfully loading
+        if not SETUP_COMPLETE_FILE.exists():
+            SETUP_COMPLETE_FILE.touch()
         run_launcher(c)
