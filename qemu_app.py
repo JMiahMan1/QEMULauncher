@@ -182,8 +182,8 @@ def run_launcher(config, dry_run=False):
         qemu_cmd.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
     elif net_mode == 'bridge-existing':
         qemu_cmd.extend(["-netdev", f"bridge,id=net0,br={config.get('bridge_name', 'bridge100')}", "-device", "virtio-net-pci,netdev=net0"])
-    else: # user
-        qemu_cmd.extend(["-nic", "user,model=virtio-net-pci"])
+    else: # user (standard NAT, no root needed)
+        qemu_cmd.extend(["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"])
 
     if dry_run: return qemu_cmd
 
