@@ -167,11 +167,16 @@ def load_config(path=None):
         if CONFIG_FILE.exists():
             file_path = CONFIG_FILE
         else:
-            # Check for legacy INI config
-            legacy_ini = CONFIG_DIR / "config.ini"
-            if legacy_ini.exists():
-                file_path = legacy_ini
-            else:
+            # Check for legacy INI config in multiple standard locations
+            legacy_paths = [CONFIG_DIR / "config.ini", Path.home() / ".config" / "qemu_launcher.ini"]
+
+            file_path = None
+            for p in legacy_paths:
+                if p.exists():
+                    file_path = p
+                    break
+
+            if not file_path:
                 return None
 
     # Load from file
@@ -186,19 +191,18 @@ def load_config(path=None):
         try:
             parser = configparser.ConfigParser()
             parser.read(file_path)
-            # Support both sectioned [VM] and flat INI (by adding a dummy section if needed)
+            # Support both sectioned [VM] and flat INI
             if "VM" in parser:
                 config_data = {k: v.strip("\"'") for k, v in parser["VM"].items()}
             elif parser.sections():
-                # If there's any other section, use the first one
                 sect = parser.sections()[0]
                 config_data = {k: v.strip("\"'") for k, v in parser[sect].items()}
         except Exception:
             pass
 
-    # Migration Logic: If we loaded an INI or from a non-standard default path, save as JSON
+    # Migration Logic: If we loaded from a legacy path or non-default path, save as new JSON default
     if config_data and not CONFIG_FILE.exists():
-        debug_print(f"Migrating config to {CONFIG_FILE}")
+        debug_print(f"Migrating config from {file_path} to {CONFIG_FILE}")
         save_config(config_data)
 
     return config_data
