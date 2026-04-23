@@ -9,7 +9,6 @@ TEST_CONFIG="test_config.ini"
 # --- Test Utilities ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 FAIL_COUNT=0
 
@@ -30,18 +29,18 @@ validate_app_logic() {
     output=$(python3 qemu_app.py --config "$TEST_CONFIG" --dry-run 2>&1)
     local exit_code=$?
     
-    if [ $exit_code -ne 0 ]; then
-        printf "[${RED}FAIL${NC}] (App crashed)\n"
+    if [ "$exit_code" -ne 0 ]; then
+        printf "[%bFAIL%b] (App crashed)\n" "${RED}" "${NC}"
         echo "$output" | sed 's/^/       /'
-        ((FAIL_COUNT++))
+        FAIL_COUNT=$((FAIL_COUNT + 1))
         return
     fi
     
     # Check for integrity issues
     if echo "$output" | grep -q "\[INTEGRITY\] Error"; then
-        printf "[${RED}FAIL${NC}] (Integrity error)\n"
+        printf "[%bFAIL%b] (Integrity error)\n" "${RED}" "${NC}"
         echo "$output" | grep "\[INTEGRITY\]" | sed 's/^/       /'
-        ((FAIL_COUNT++))
+        FAIL_COUNT=$((FAIL_COUNT + 1))
         return
     fi
     
@@ -54,10 +53,10 @@ validate_app_logic() {
     done
     
     if [ ${#missing[@]} -eq 0 ]; then
-        printf "[${GREEN}PASS${NC}]\n"
+        printf "[%bPASS%b]\n" "${GREEN}" "${NC}"
     else
-        printf "[${RED}FAIL${NC}] (Missing: ${missing[*]})\n"
-        ((FAIL_COUNT++))
+        printf "[%bFAIL%b] (Missing: %s)\n" "${RED}" "${NC}" "${missing[*]}"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     
     rm -f "$TEST_CONFIG"

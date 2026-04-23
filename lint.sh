@@ -12,4 +12,7 @@ fi
 
 ruff check $PYTHON_FILES
 
+echo "--- Running ShellCheck ---"
+shellcheck launcher.sh test.sh test_build.sh build.sh lint.sh
+
 echo "--- Linting Passed! ---"
