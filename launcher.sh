@@ -1,115 +1,77 @@
 #!/bin/bash
 
-# --- DYNAMIC PATH DISCOVERY ---
-HOMEBREW_PATHS="/opt/homebrew/bin:/usr/local/bin"
+# --- Environment Setup ---
+# Ensure Homebrew paths are available
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-if ! command -v brew &> /dev/null; then
-    for dir in ${HOMEBREW_PATHS//:/ }; do
-        if [ -x "$dir/brew" ]; then
-            export PATH="$HOMEBREW_PATHS:$PATH"
-            break
-        fi
-    done
-fi
+# Setup logging for debugging
+LOG_FILE="/tmp/qemu_launcher.log"
+echo "--- Launcher Started at $(date) ---" > "$LOG_FILE"
 
-PYTHON3_PATH=""
+# --- Discovery ---
+# Get the directory where the script is located
+# If running inside an .app bundle, this is Contents/MacOS
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if command -v python3 &> /dev/null; then
-    PYTHON3_PATH=$(command -v python3)
-fi
-
-if [ -z "$PYTHON3_PATH" ] && [ -x "/usr/bin/python3" ]; then
-    PYTHON3_PATH="/usr/bin/python3"
-fi
-
-if [ -n "$PYTHON3_PATH" ]; then
-    export PYTHON3_BIN="$PYTHON3_PATH"
+# Identify the Python script location
+if [[ "$SCRIPT_DIR" == *"Contents/MacOS"* ]]; then
+    # Standard macOS Bundle structure: qemu_app.py is in ../Resources
+    PYTHON_SCRIPT="$(cd "$SCRIPT_DIR/../Resources" && pwd)/qemu_app.py"
 else
-    export PYTHON3_BIN="python3"
+    # Development mode: qemu_app.py is in the same folder
+    PYTHON_SCRIPT="$SCRIPT_DIR/qemu_app.py"
 fi
 
-CONFIG_DIR="${HOME}/.config/qemu_launcher"
-FLAG_FILE="${CONFIG_DIR}/.setup_complete"
+echo "Script Dir: $SCRIPT_DIR" >> "$LOG_FILE"
+echo "Python Script Path: $PYTHON_SCRIPT" >> "$LOG_FILE"
 
-# --- Context-Aware Path Detection ---
-if [[ -n "$RESOURCES" ]]; then
-    PYTHON_APP_PATH="$RESOURCES/qemu_app.py"
-else
-    SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-    PYTHON_APP_PATH="$SCRIPT_DIR/qemu_app.py"
-fi
-
-
-# --- Main Logic ---
-if [ -f "$FLAG_FILE" ]; then
-    # Build the shell command string for osascript
-    cmd="$PYTHON3_BIN \"$PYTHON_APP_PATH\""
-
-    # Append any additional arguments safely
-    for arg in "$@"; do
-        escaped_arg=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
-        cmd="$cmd \"$escaped_arg\""
-    done
-
-    # Escape double quotes for AppleScript
-    cmd_escaped=$(printf '%s' "$cmd" | sed 's/"/\\"/g')
-
-    # Run with admin privileges via osascript
-    osascript -e "do shell script \"$cmd_escaped\" with administrator privileges"
-    exit $?
-fi
-
-# --- First-Run Setup Wizard ---
+# --- Dependency Checks ---
 function show_dialog() {
-    osascript -e "tell app \"System Events\" to display dialog \"$2\" with title \"QEMU Launcher Setup\" with icon $1 buttons {\"OK\"} default button \"OK\"" >/dev/null
+    osascript -e "tell app \"System Events\" to display dialog \"$2\" with title \"QEMU Launcher\" with icon $1 buttons {\"OK\"} default button \"OK\"" >/dev/null
 }
+
 function ask_yes_no() {
-    osascript -e "tell app \"System Events\" to display dialog \"$1\" with title \"QEMU Launcher Setup\" buttons {\"No\", \"Yes\"} default button \"Yes\"" | grep -q "Yes"
+    osascript -e "tell app \"System Events\" to display dialog \"$1\" with title \"QEMU Launcher\" buttons {\"No\", \"Yes\"} default button \"Yes\"" | grep -q "Yes"
     return $?
 }
 
+# 1. Check for Homebrew
 if ! command -v brew &> /dev/null; then
     show_dialog "stop" "Homebrew is not installed. Please install it from brew.sh to continue."
     exit 1
 fi
 
-if ! "$PYTHON3_BIN" -c "import tkinter" &> /dev/null; then
-    if ask_yes_no "Python is missing the Tkinter GUI toolkit. Install it with Homebrew (brew install python-tk)?"; then
+# 2. Check for Python 3 and Tkinter
+PYTHON_EXEC=$(which python3)
+if [ -z "$PYTHON_EXEC" ]; then
+    show_dialog "stop" "Python 3 was not found. Please install it via Homebrew."
+    exit 1
+fi
+
+if ! "$PYTHON_EXEC" -c "import tkinter" &> /dev/null; then
+    if ask_yes_no "Python is missing the Tkinter GUI toolkit. Install it now?"; then
         osascript -e "tell application \"Terminal\" to activate" -e "tell application \"Terminal\" to do script \"brew install python-tk\""
-        show_dialog "note" "Please re-run this application after the Terminal install is complete."
+        show_dialog "note" "Please re-run this app once the installation is finished."
         exit 0
     else
         exit 1
     fi
 fi
 
+# 3. Check for QEMU
 if ! command -v qemu-system-aarch64 &> /dev/null && ! command -v qemu-system-x86_64 &> /dev/null; then
-    if ask_yes_no "QEMU is not installed. Install it with Homebrew?"; then
+    if ask_yes_no "QEMU is not installed. Install it now?"; then
         osascript -e "tell application \"Terminal\" to activate" -e "tell application \"Terminal\" to do script \"brew install qemu\""
-        show_dialog "note" "Please re-run this application after the Terminal install is complete."
+        show_dialog "note" "Please re-run this app once the installation is finished."
         exit 0
     else
         exit 1
     fi
 fi
 
-# --- All checks passed. Create flag file and launch the main app. ---
-mkdir -p "$CONFIG_DIR"
-touch "$FLAG_FILE"
-if [ -f "$FLAG_FILE" ]; then
-    # Build the shell command string for osascript
-    cmd="$PYTHON3_BIN \"$PYTHON_APP_PATH\""
+# --- Launch ---
+echo "Launching GUI with: $PYTHON_EXEC $PYTHON_SCRIPT" >> "$LOG_FILE"
 
-    # Append any additional arguments safely
-    for arg in "$@"; do
-        escaped_arg=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
-        cmd="$cmd \"$escaped_arg\""
-    done
-
-    # Escape double quotes for AppleScript
-    cmd_escaped=$(printf '%s' "$cmd" | sed 's/"/\\"/g')
-
-    # Run with admin privileges via osascript
-    osascript -e "do shell script \"$cmd_escaped\" with administrator privileges"
-    exit $?
-fi
+# Launch the Python GUI as the current user.
+# IMPORTANT: No 'with administrator privileges' here, so the window can open on your desktop.
+exec "$PYTHON_EXEC" "$PYTHON_SCRIPT" "$@" >> "$LOG_FILE" 2>&1
