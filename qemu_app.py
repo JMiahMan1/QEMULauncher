@@ -159,27 +159,49 @@ class GestureMonitor:
 
 
 def load_config(path=None):
-    file_path = Path(path) if path else CONFIG_FILE
-    if not file_path.exists():
-        return None
+    # If path is provided, use it exactly (for CLI --config)
+    if path:
+        file_path = Path(path)
+    else:
+        # Check for new JSON config first
+        if CONFIG_FILE.exists():
+            file_path = CONFIG_FILE
+        else:
+            # Check for legacy INI config
+            legacy_ini = CONFIG_DIR / "config.ini"
+            if legacy_ini.exists():
+                file_path = legacy_ini
+            else:
+                return None
 
-    # Try JSON first
+    # Load from file
+    config_data = None
+
+    # Try JSON
     try:
         with open(file_path, "r") as f:
-            return json.load(f)
+            config_data = json.load(f)
     except Exception:
-        pass
+        # Try INI
+        try:
+            parser = configparser.ConfigParser()
+            parser.read(file_path)
+            # Support both sectioned [VM] and flat INI (by adding a dummy section if needed)
+            if "VM" in parser:
+                config_data = {k: v.strip("\"'") for k, v in parser["VM"].items()}
+            elif parser.sections():
+                # If there's any other section, use the first one
+                sect = parser.sections()[0]
+                config_data = {k: v.strip("\"'") for k, v in parser[sect].items()}
+        except Exception:
+            pass
 
-    # Try INI
-    try:
-        config = configparser.ConfigParser()
-        config.read(file_path)
-        if "VM" in config:
-            return {k: v.strip("\"'") for k, v in config["VM"].items()}
-    except Exception:
-        pass
+    # Migration Logic: If we loaded an INI or from a non-standard default path, save as JSON
+    if config_data and not CONFIG_FILE.exists():
+        debug_print(f"Migrating config to {CONFIG_FILE}")
+        save_config(config_data)
 
-    return None
+    return config_data
 
 
 def save_config(config, path=None):
