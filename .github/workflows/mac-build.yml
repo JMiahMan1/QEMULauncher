@@ -109,7 +109,7 @@ jobs:
           arch: ${{ matrix.arch }}
           distro: fedora_latest
           run: |
-            dnf install -y python3-devel gcc ruby ruby-devel rubygems rpm-build git
+            dnf install -y python3-devel gcc ruby-devel rubygems rpm-build git tk-devel tcl-devel
             gem install --no-document fpm
             pip3 install pyinstaller ruff
             if [ -f requirements.txt ]; then

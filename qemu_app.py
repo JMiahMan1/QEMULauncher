@@ -94,6 +94,52 @@ class DisplayManager:
 
 class WindowManager:
     @staticmethod
+    def toggle_fullscreen(config=None):
+        """Toggles fullscreen state of the QEMU window."""
+        try:
+            from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+            from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll, kCGWindowOwnerPID
+
+            window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
+            for window in window_list:
+                owner_name = window.get("kCGWindowOwnerName", "").lower()
+                if "qemu-system" in owner_name:
+                    pid = window.get(kCGWindowOwnerPID)
+
+                    # Try native Accessibility first
+                    app_ref = AXUIElementCreateApplication(pid)
+                    error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+                    if error == 0 and windows:
+                        win = windows[0]
+                        error, current = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
+                        AXUIElementSetAttributeValue(win, "AXFullScreen", not current)
+                        debug_print(f"Toggled fullscreen via AXUIElement for PID {pid}")
+                        return
+                    else:
+                        # Fallback to Native Quartz Keystroke (Cmd+Ctrl+F)
+                        # 'f' is keycode 3
+                        from Quartz import (
+                            CGEventCreateKeyboardEvent,
+                            CGEventPost,
+                            CGEventSetFlags,
+                            kCGEventFlagMaskCommand,
+                            kCGEventFlagMaskControl,
+                            kCGHIDEventTap,
+                        )
+
+                        f_down = CGEventCreateKeyboardEvent(None, 3, True)
+                        CGEventSetFlags(f_down, kCGEventFlagMaskCommand | kCGEventFlagMaskControl)
+                        CGEventPost(kCGHIDEventTap, f_down)
+
+                        f_up = CGEventCreateKeyboardEvent(None, 3, False)
+                        CGEventPost(kCGHIDEventTap, f_up)
+                        debug_print(f"Toggled fullscreen via Quartz event for PID {pid}")
+                        return
+            debug_print("Toggle Fullscreen: QEMU window not found.")
+        except Exception as e:
+            debug_print(f"Fullscreen toggle failed: {e}")
+
+    @staticmethod
     def orchestrate_window(pid=None, target_display=None, fullscreen=False):
         """Finds the QEMU window and applies position/fullscreen."""
         if AppKit is None or Quartz is None:
@@ -651,94 +697,69 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
 
-    # Initialize main UI root (MUST be on main thread)
+    if args.dry_run:
+        if config:
+            cmd = run_launcher(config, dry_run=True)
+            print(" ".join(cmd))
+            sys.exit(0)
+        else:
+            print("Error: No configuration found for dry-run.")
+            sys.exit(1)
+
+    # --- UI REQUIRED FROM THIS POINT ---
     root = tk.Tk()
     root.title("QEMU Launcher")
-    root.withdraw()
+    
+    # Configure global styles
+    style = ttk.Style()
+    if sys.platform == "darwin":
+        style.theme_use("aqua")
 
-    def toggle_fullscreen(event=None):
-        try:
-            from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
-            from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll, kCGWindowOwnerPID
+    # Shared Fullscreen Toggle Logic
+    def toggle_fullscreen_callback(event=None):
+        WindowManager.toggle_fullscreen(config)
 
-            window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
-            for window in window_list:
-                if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
-                    pid = window.get(kCGWindowOwnerPID)
-
-                    # Try native Accessibility first
-                    app_ref = AXUIElementCreateApplication(pid)
-                    error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
-                    if error == 0 and windows:
-                        win = windows[0]
-                        error, current = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
-                        AXUIElementSetAttributeValue(win, "AXFullScreen", not current)
-                    else:
-                        # Fallback to Native Quartz Keystroke (Cmd+Ctrl+F)
-                        # 'f' is keycode 3
-                        from Quartz import (
-                            CGEventCreateKeyboardEvent,
-                            CGEventPost,
-                            CGEventSetFlags,
-                            kCGEventFlagMaskCommand,
-                            kCGEventFlagMaskControl,
-                            kCGHIDEventTap,
-                        )
-
-                        f_down = CGEventCreateKeyboardEvent(None, 3, True)
-                        CGEventSetFlags(f_down, kCGEventFlagMaskCommand | kCGEventFlagMaskControl)
-                        CGEventPost(kCGHIDEventTap, f_down)
-
-                        f_up = CGEventCreateKeyboardEvent(None, 3, False)
-                        CGEventPost(kCGHIDEventTap, f_up)
-                    break
-        except Exception as e:
-            debug_print(f"Fullscreen toggle failed: {e}")
-
-    # Setup Menu Bar
+    # Setup Hidden Menu for Hotkey Binding
     menubar = tk.Menu(root)
     view_menu = tk.Menu(menubar, tearoff=0)
-    view_menu.add_command(label="Toggle Fullscreen", command=toggle_fullscreen, accelerator="Cmd+Ctrl+F")
+    view_menu.add_command(label="Toggle Fullscreen", command=toggle_fullscreen_callback, accelerator="Cmd+Ctrl+F")
     view_menu.add_command(label="Settings...", command=lambda: run_setup_ui(config, parent_root=root))
     menubar.add_cascade(label="View", menu=view_menu)
     root.config(menu=menubar)
+    
+    # Bind Key Event
+    root.bind_all("<Control-Command-f>", toggle_fullscreen_callback)
 
-    # Bind Fullscreen Shortcut
-    root.bind_all("<Control-Command-f>", toggle_fullscreen)
-
-    def open_settings():
-        run_setup_ui(config, parent_root=root)
-
-    # Start monitor hotspot
-    GestureMonitor.start(root, open_settings)
-
-    if args.dry_run:
-        if config:
-            print(" ".join(run_launcher(config, dry_run=True)))
-        else:
-            print("Error: No config found for dry-run")
-            sys.exit(1)
-    elif args.setup or not config or not SETUP_COMPLETE_FILE.is_file():
-        run_setup_ui(config, parent_root=root)
+    if args.setup or not config:
+        # SETUP MODE
+        run_setup_ui(config or {}, parent_root=root)
+        root.mainloop()
     else:
-        run_launcher(config)
-    # Global Hotkey Monitor for macOS
-    if sys.platform == "darwin" and AppKit:
-        try:
-            from AppKit import NSCommandKeyMask, NSControlKeyMask, NSEvent, NSKeyDownMask
+        # RUN MODE
+        root.withdraw() # Hide launcher root
+        debug_print("Starting QEMU Launcher in Run Mode...")
+        
+        # Start QEMU
+        proc = run_launcher(config)
+        
+        # Initialize Hotspot
+        _ = GestureMonitor.start(root, lambda: run_setup_ui(config, parent_root=root))
+        
+        # Start Global Monitor for macOS
+        if sys.platform == "darwin" and AppKit:
+            try:
+                from AppKit import NSCommandKeyMask, NSControlKeyMask, NSEvent, NSKeyDownMask
 
-            def global_key_handler(event):
-                # Check for Cmd+Ctrl+F (Keycode 3 is 'f')
-                if event.keyCode() == 3:
-                    flags = event.modifierFlags()
-                    if (flags & NSCommandKeyMask) and (flags & NSControlKeyMask):
-                        debug_print("Global Cmd+Ctrl+F detected!")
-                        toggle_fullscreen()
-                return event
+                def global_key_handler(event):
+                    if event.keyCode() == 3: # 'F'
+                        flags = event.modifierFlags()
+                        if (flags & NSCommandKeyMask) and (flags & NSControlKeyMask):
+                            debug_print("Global Hotkey Detected: Cmd+Ctrl+F")
+                            root.after(0, toggle_fullscreen_callback)
+                    return event
 
-            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(NSKeyDownMask, global_key_handler)
-            debug_print("Global macOS hotkey monitor active.")
-        except Exception as e:
-            debug_print(f"Failed to setup global hotkey monitor: {e}")
+                NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(NSKeyDownMask, global_key_handler)
+            except Exception as e:
+                debug_print(f"Failed to setup global monitor: {e}")
 
-    root.mainloop()
+        root.mainloop()
