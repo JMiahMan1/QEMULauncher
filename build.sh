@@ -23,19 +23,8 @@ rm -rf build dist "$OUTPUT_APP"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "-> Building standalone macOS application with PyInstaller..."
-        
-    # 1. Install dependencies and PyInstaller
-    pip3 install -q -r requirements.txt
-    pip3 install pyinstaller
-
-    # 2. Run PyInstaller build
     python3 build_pyinstaller.py
-        
-    # 3. Rename output to final name (PyInstaller outputs to dist/)
-    # PyInstaller --onefile creates a single binary in dist/
-    # We then wrap it back into a .app structure or use --windowed
-    # Our build_pyinstaller.py uses --windowed which creates dist/QEMU Launcher.app
-        
+
     if [ -d "dist/$OUTPUT_APP" ]; then
         echo "-> PyInstaller build successful. Moving to root..."
         mv "dist/$OUTPUT_APP" "./$OUTPUT_APP"
@@ -62,8 +51,8 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
          exit 1
     fi
 else
-    echo "-> Skipping macOS bundling (Not on macOS). Creating mock bundle for test compatibility..."
-    mkdir -p "$OUTPUT_APP"
+    echo "-> Building Linux directory artifact with PyInstaller..."
+    python3 -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
 fi
 
 # 4. Cleanup

@@ -3,7 +3,11 @@ __pycache__/
 *.pyo
 *.pyd
 *.app
+build/
+dist/
+*.spec
 .Python
+.env
 env/
 venv/
 pip-log.txt
@@ -16,6 +20,7 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+.codex
 *.log
 config.ini
 .setup_complete

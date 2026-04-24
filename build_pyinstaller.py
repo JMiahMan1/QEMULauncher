@@ -6,19 +6,15 @@ def build():
         "qemu_app.py",
         "--name=QEMU Launcher",
         "--windowed",
-        "--onefile",
+        "--onedir",
         "--icon=RunLinux.icns",
         "--add-data=RunLinux.icns:.",
-        "--hidden-import=pynput.keyboard._darwin",
-        "--hidden-import=pynput.mouse._darwin",
-        "--hidden-import=screeninfo.drivers.osx",
+        "--collect-all=PySide6",
         "--collect-all=encodings",
         "--osx-bundle-identifier=com.qemu.launcher",
         "--clean",
         "--noconfirm",
     ]
-
-    # Add macOS specific codesign identity if needed, but we do it in build.sh
 
     run(opts)
 

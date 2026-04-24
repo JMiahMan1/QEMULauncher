@@ -1,4 +1,8 @@
-pyobjc
-ruff
+PySide6
+platformdirs
+pydantic
+pyobjc; sys_platform == "darwin"
 dmgbuild
-fpm
+pyinstaller
+pytest
+ruff
