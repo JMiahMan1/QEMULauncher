@@ -59,21 +59,29 @@ class DisplayManager:
 
         try:
             screens = AppKit.NSScreen.screens()
+            primary_frame = screens[0].frame()
+            max_y = int(primary_frame.size.height)
+            
             displays = []
             for i, screen in enumerate(screens):
                 frame = screen.frame()
+                # Convert AppKit (bottom-up) to Tkinter (top-down)
+                # Tkinter Y = 0 is the top of the primary screen
+                tk_y = int(max_y - (frame.origin.y + frame.size.height))
+                
                 displays.append(
                     {
                         "index": i,
                         "x": int(frame.origin.x),
-                        "y": int(frame.origin.y),
+                        "y": tk_y,
                         "width": int(frame.size.width),
                         "height": int(frame.size.height),
                         "is_primary": i == 0,
                     }
                 )
             return displays
-        except Exception:
+        except Exception as e:
+            debug_print(f"Display detection failed: {e}")
             return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
 
     @staticmethod
@@ -150,42 +158,49 @@ class WindowManager:
 
 class HotspotWindow:
     def __init__(self, root, settings_callback):
+        debug_print("Initializing HotspotWindow...")
         self.root = root
         self.window = tk.Toplevel(self.root)
+        
+        # Use a more robust way to hide title bar on macOS
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
-        self.window.attributes("-alpha", 0.6)  # Slightly more visible
-        self.window.configure(bg="#2196f3")  # Material Blue
+        self.window.attributes("-alpha", 0.95)
+        self.window.configure(bg="#ff0000")  # STARK RED
 
         # Position at top center of target display
         target = DisplayManager.get_target_display()
-        width, height = 120, 6  # Slightly larger target
+        width, height = 400, 15  # Even larger hit area for confirmation
         x = target["x"] + (target["width"] // 2) - (width // 2)
         y = target["y"]
-        # On macOS, geometry uses top-left origin
-        self.window.geometry(f"{width}x{height}+{x}+{y}")
+        
+        geo = f"{width}x{height}+{x}+{y}"
+        debug_print(f"Applying Hotspot geometry: {geo}")
+        self.window.geometry(geo)
 
         self.window.bind("<Enter>", lambda e: self.on_enter())
         self.window.bind("<Leave>", lambda e: self.on_leave())
         self.settings_callback = settings_callback
         self.hover_start = None
 
-        # Ensure it stays on top
         self.window.lift()
+        self.window.update()
+        debug_print("HotspotWindow initialized and lifted.")
 
     def on_enter(self):
-        self.window.configure(bg="#4caf50")  # Turn Green on hover
-        self.window.attributes("-alpha", 0.9)
+        debug_print("Hotspot hover started")
+        self.root.lift()
+        self.root.focus_force()
+        self.window.configure(bg="#00ff00")
         self.hover_start = time.time()
         self.check_hover()
 
     def on_leave(self):
-        self.window.configure(bg="#2196f3")
-        self.window.attributes("-alpha", 0.6)
+        self.window.configure(bg="#ff0000")
         self.hover_start = None
 
     def check_hover(self):
-        if self.hover_start and (time.time() - self.hover_start >= 1.5):  # Faster trigger (1.5s)
+        if self.hover_start and (time.time() - self.hover_start >= 0.8): # Faster trigger (0.8s)
             debug_print("Hotspot trigger activated!")
             self.settings_callback()
             self.hover_start = None
@@ -366,6 +381,8 @@ def run_launcher(config, dry_run=False):
 
     # Network Setup
     net_mode = config.get("network_mode", "user")
+    debug_print(f"Loaded network_mode from config: {net_mode}")
+    
     if net_mode == "vmnet-shared":
         qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
     elif net_mode == "bridge-existing":
@@ -388,38 +405,32 @@ def run_launcher(config, dry_run=False):
     # Needs root for anything other than 'user' mode (vmnet requires root)
     needs_root = net_mode != "user"
     try:
-        debug_print("Launching QEMU with command:", " ".join(qemu_command))
+        debug_print(f"Final Command Construction: needs_root={needs_root}")
+        debug_print("Full QEMU command:", " ".join(qemu_command))
+        
         if needs_root:
             if sys.platform == "darwin":
                 # macOS Native elevation
-                try:
-                    from AppKit import NSAppleScript
+                from AppKit import NSAppleScript
+                cmd_str = " ".join(f"'{a}'" for a in qemu_command)
+                debug_print(f"Executing elevated script: {cmd_str}")
+                script_src = f'do shell script "{cmd_str}" with administrator privileges'
+                script = NSAppleScript.alloc().initWithSource_(script_src)
+                
+                def _run_elevated():
+                    result, error = script.executeAndReturnError_(None)
+                    if error:
+                        debug_print(f"Elevated launch failed: {error}")
+                    else:
+                        debug_print("Elevated launch successful.")
 
-                    cmd_str = " ".join(f"'{a}'" for a in qemu_command)
-                    script_src = f'do shell script "{cmd_str}" with administrator privileges'
-                    script = NSAppleScript.alloc().initWithSource_(script_src)
-
-                    def _run_elevated():
-                        result, error = script.executeAndReturnError_(None)
-                        if error:
-                            debug_print(f"Elevated launch failed: {error}")
-                        else:
-                            debug_print("Elevated launch successful.")
-
-                    import threading
-
-                    threading.Thread(target=_run_elevated, daemon=True).start()
-                    proc = None
-                except ImportError:
-                    proc = subprocess.Popen(qemu_command, env=qemu_env)
+                import threading
+                threading.Thread(target=_run_elevated, daemon=True).start()
+                proc = None 
             else:
                 # Linux Native elevation via pkexec
-                try:
-                    debug_print("Triggering Linux elevation via pkexec...")
-                    proc = subprocess.Popen(["pkexec"] + qemu_command, env=qemu_env)
-                except Exception as e:
-                    debug_print(f"pkexec failed: {e}")
-                    proc = subprocess.Popen(qemu_command, env=qemu_env)
+                debug_print("Triggering Linux elevation via pkexec...")
+                proc = subprocess.Popen(["pkexec"] + qemu_command, env=qemu_env)
         else:
             proc = subprocess.Popen(qemu_command, env=qemu_env)
 
