@@ -25,7 +25,8 @@ rm -rf build dist "$OUTPUT_APP"
 if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "-> Building standalone macOS application with PyInstaller..."
         
-    # 1. Install PyInstaller if missing
+    # 1. Install dependencies and PyInstaller
+    pip3 install -q -r requirements.txt
     pip3 install pyinstaller
 
     # 2. Run PyInstaller build
