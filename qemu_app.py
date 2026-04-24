@@ -94,65 +94,58 @@ class DisplayManager:
 
 class WindowManager:
     @staticmethod
-    def orchestrate_window(process_pid, fullscreen=True):
+    def orchestrate_window(pid=None, target_display=None, fullscreen=False):
+        """Finds the QEMU window and applies position/fullscreen."""
+        if AppKit is None or Quartz is None:
+            return
+
+        from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+        from Quartz import (
+            CGWindowListCopyWindowInfo,
+            kCGNullWindowID,
+            kCGWindowListOptionAll,
+            kCGWindowOwnerPID,
+        )
+
         def _orchestrate():
-            import time
-
-            try:
-                from AppKit import (
-                    AXUIElementCopyAttributeValue,
-                    AXUIElementCreateApplication,
-                    AXUIElementSetAttributeValue,
-                )
-                from Quartz import (
-                    CGWindowListCopyWindowInfo,
-                    kCGNullWindowID,
-                    kCGWindowListOptionAll,
-                    kCGWindowOwnerPID,
-                )
-            except ImportError:
-                debug_print("Quartz/AppKit not available for window orchestration.")
-                return
-
-            debug_print(f"Orchestrating window for process {process_pid}...")
-            target = DisplayManager.get_target_display()
-
-            # Find actual QEMU PID (might be different if elevated)
-            actual_pid = None
-            for _ in range(15):
+            start_time = time.time()
+            actual_pid = pid
+            
+            debug_print(f"Orchestrating window for target PID {pid} (fullscreen={fullscreen})...")
+            
+            while time.time() - start_time < 20:
                 window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
                 for window in window_list:
-                    if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
-                        actual_pid = window.get(kCGWindowOwnerPID)
-                        break
-                if actual_pid:
-                    break
+                    owner_name = window.get("kCGWindowOwnerName", "").lower()
+                    if "qemu-system" in owner_name:
+                        win_pid = window.get(kCGWindowOwnerPID)
+                        
+                        # Match by PID if provided, otherwise grab first QEMU window
+                        if actual_pid is None or win_pid == actual_pid:
+                            actual_pid = win_pid
+                            
+                            app_ref = AXUIElementCreateApplication(actual_pid)
+                            error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+                            
+                            if error == 0 and windows:
+                                win = windows[0]
+                                debug_print(f"Applying orchestration to PID {actual_pid}")
+                                
+                                # 1. Position
+                                if target_display:
+                                    AXUIElementSetAttributeValue(win, "AXPosition", (target_display["x"], target_display["y"]))
+                                
+                                # 2. Fullscreen
+                                if fullscreen:
+                                    # Wait a tiny bit for the window to stabilize
+                                    time.sleep(1)
+                                    AXUIElementSetAttributeValue(win, "AXFullScreen", True)
+                                
+                                return
                 time.sleep(1)
-
-            if not actual_pid:
-                debug_print("Could not find QEMU window PID.")
-                return
-
-            # Use Accessibility API to move and fullscreen
-            app_ref = AXUIElementCreateApplication(actual_pid)
-            error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
-            if error == 0 and windows:
-                qemu_win = windows[0]
-                # Set Position
-                pos = (target["x"], target["y"])
-                AXUIElementSetAttributeValue(qemu_win, "AXPosition", pos)
-                # Set Size
-                size = (target["width"], target["height"])
-                AXUIElementSetAttributeValue(qemu_win, "AXSize", size)
-                # Set Fullscreen
-                if fullscreen:
-                    AXUIElementSetAttributeValue(qemu_win, "AXFullScreen", True)
-                debug_print(f"Native orchestration successful for PID {actual_pid}")
-            else:
-                debug_print(f"Accessibility API failed to find windows: {error}")
+            debug_print("Orchestration timeout: Window not found.")
 
         import threading
-
         threading.Thread(target=_orchestrate, daemon=True).start()
 
 
@@ -434,7 +427,7 @@ def run_launcher(config, dry_run=False):
                 import threading
 
                 threading.Thread(target=_run_elevated, daemon=True).start()
-                proc = None
+                proc = None 
             else:
                 # Linux Native elevation via pkexec
                 debug_print("Triggering Linux elevation via pkexec...")
@@ -442,11 +435,15 @@ def run_launcher(config, dry_run=False):
         else:
             proc = subprocess.Popen(qemu_command, env=qemu_env)
 
-        if proc and proc.poll() is None:
-            WindowManager.orchestrate_window(proc.pid, fullscreen=config.get("enable_fullscreen", True))
-        elif needs_root:
-            # For elevated launch, WindowManager will find the PID by name as a fallback
-            WindowManager.orchestrate_window(None, fullscreen=config.get("enable_fullscreen", True))
+        # Trigger Window Orchestration (Background)
+        if sys.platform == "darwin":
+            target_display = DisplayManager.get_target_display()
+            fullscreen = config.get("enable_fullscreen", "False")
+            if isinstance(fullscreen, str):
+                fullscreen = fullscreen.lower() == "true"
+            # If elevated, proc is None, but orchestrate_window will search by name
+            pid = proc.pid if proc else None
+            WindowManager.orchestrate_window(pid=pid, target_display=target_display, fullscreen=fullscreen)
 
         return proc
 
