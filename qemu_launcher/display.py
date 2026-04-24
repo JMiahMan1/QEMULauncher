@@ -6,8 +6,6 @@ import sys
 import time
 from dataclasses import dataclass
 
-from PySide6.QtGui import QGuiApplication
-
 PRIMARY_DISPLAY_NAME = "Primary Display"
 
 
@@ -32,31 +30,44 @@ def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullsc
 
 
 def available_displays() -> list[DisplayTarget]:
-    app = QGuiApplication.instance()
+    app = _qgui_application_instance()
     if app:
-        displays: list[DisplayTarget] = []
-        primary = app.primaryScreen()
-        for index, screen in enumerate(app.screens()):
-            geometry = screen.geometry()
-            name = screen.name() or f"Display {index + 1}"
-            is_primary = screen is primary
-            if is_primary:
-                name = f"{name} (Primary)"
-            displays.append(
-                DisplayTarget(
-                    name=name,
-                    x=geometry.x(),
-                    y=geometry.y(),
-                    width=geometry.width(),
-                    height=geometry.height(),
-                    primary=is_primary,
-                )
-            )
+        displays = _qt_available_displays(app)
         if displays:
             return displays
     if sys.platform == "darwin":
         return _available_displays_macos()
     return []
+
+
+def _qgui_application_instance():
+    try:
+        from PySide6.QtGui import QGuiApplication
+    except Exception:
+        return None
+    return QGuiApplication.instance()
+
+
+def _qt_available_displays(app) -> list[DisplayTarget]:
+    displays: list[DisplayTarget] = []
+    primary = app.primaryScreen()
+    for index, screen in enumerate(app.screens()):
+        geometry = screen.geometry()
+        name = screen.name() or f"Display {index + 1}"
+        is_primary = screen is primary
+        if is_primary:
+            name = f"{name} (Primary)"
+        displays.append(
+            DisplayTarget(
+                name=name,
+                x=geometry.x(),
+                y=geometry.y(),
+                width=geometry.width(),
+                height=geometry.height(),
+                primary=is_primary,
+            )
+        )
+    return displays
 
 
 def resolve_display(name: str | None) -> DisplayTarget | None:
