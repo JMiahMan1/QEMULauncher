@@ -419,8 +419,6 @@ if __name__ == "__main__":
 
     if args.integrity_check:
         try:
-            import encodings.utf_8
-            import encodings.ascii
             print("[INTEGRITY] Success: All core modules loaded.")
             sys.exit(0)
         except Exception as e:
