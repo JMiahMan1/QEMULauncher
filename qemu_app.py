@@ -142,6 +142,11 @@ class WindowManager:
 
                     # Try native Accessibility first
                     app_ref = AXCreate(pid)
+
+                    # FOCUS the app first
+                    AXSet(app_ref, "AXFrontmost", True)
+                    time.sleep(0.1)
+
                     error, windows = AXCopy(app_ref, "AXWindows", None)
 
                     if error != 0 or not windows:
@@ -214,6 +219,11 @@ class WindowManager:
                             actual_pid = win_pid
 
                             app_ref = AXCreate(actual_pid)
+
+                            # FOCUS the app first
+                            AXSet(app_ref, "AXFrontmost", True)
+                            time.sleep(0.1)
+
                             error, windows = AXCopy(app_ref, "AXWindows", None)
 
                             if error == 0 and windows:
@@ -226,8 +236,8 @@ class WindowManager:
 
                                 # 2. Fullscreen
                                 if fullscreen:
-                                    # Wait a tiny bit for the window to stabilize
-                                    time.sleep(1)
+                                    # Delay to allow window move to complete
+                                    time.sleep(0.8)
                                     AXSet(win, "AXFullScreen", True)
 
                                 return
@@ -253,7 +263,7 @@ class HotspotWindow:
 
         # Position at top center of target display
         target = DisplayManager.get_target_display()
-        width, height = 400, 15  # Even larger hit area for confirmation
+        width, height = 400, 2  # Ultra-thin hotspot
         x = target["x"] + (target["width"] // 2) - (width // 2)
         y = target["y"]
 
@@ -413,9 +423,6 @@ def run_launcher(config, dry_run=False):
     firmware_path = config["firmware_path"]
     disk_path = config["disk_path"]
 
-    # Fullscreen at start
-    fs_val = "on" if config.get("enable_fullscreen") else "off"
-
     # Base Command
     qemu_command = [
         qemu_executable,
@@ -436,7 +443,7 @@ def run_launcher(config, dry_run=False):
         "-drive",
         f"id=disk0,if=none,format=qcow2,file={os.path.expanduser(disk_path)}",
         "-display",
-        f"cocoa,show-cursor=on,zoom-to-fit=on,full-screen={fs_val}",
+        "cocoa,show-cursor=on,zoom-to-fit=on",
         "-device",
         f"virtio-gpu-pci,xres={DisplayManager.get_target_display()['width']},yres={DisplayManager.get_target_display()['height']}",
         "-device",
