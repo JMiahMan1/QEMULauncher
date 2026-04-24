@@ -332,14 +332,24 @@ def run_launcher(config, dry_run=False):
     if dry_run:
         return qemu_cmd
 
+    # Environment Isolation for QEMU
+    # Prevent PyInstaller's library paths from interfering with QEMU's plugin loading
+    qemu_env = os.environ.copy()
+    for var in ["PYTHONPATH", "PYTHONHOME", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"]:
+        if var in qemu_env:
+            del qemu_env[var]
+
     needs_root = net_mode != "user"
     try:
         debug_print(f"Launching QEMU for target: {target_display['width']}x{target_display['height']}")
         if needs_root:
             cmd_str = " ".join(f"'{a}'" for a in qemu_cmd)
-            proc = subprocess.Popen(["osascript", "-e", f'do shell script "{cmd_str}" with administrator privileges'])
+            proc = subprocess.Popen(
+                ["osascript", "-e", f'do shell script "{cmd_str}" with administrator privileges'],
+                env=qemu_env,
+            )
         else:
-            proc = subprocess.Popen(qemu_cmd)
+            proc = subprocess.Popen(qemu_cmd, env=qemu_env)
 
         WindowManager.orchestrate_window("qemu-system", fullscreen=config.get("enable_fullscreen", True))
         return proc
