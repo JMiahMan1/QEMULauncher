@@ -419,6 +419,13 @@ if __name__ == "__main__":
 
     if args.integrity_check:
         try:
+            import encodings.ascii
+            import encodings.utf_8
+
+            # Dummy use to prevent linter from stripping "unused" imports
+            _ = encodings.ascii.getregentry()
+            _ = encodings.utf_8.getregentry()
+
             print("[INTEGRITY] Success: All core modules loaded.")
             sys.exit(0)
         except Exception as e:
