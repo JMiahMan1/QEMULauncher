@@ -31,7 +31,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
       - name: Run ShellCheck
-        run: shellcheck launcher.sh test_build.sh build.sh
+        run: shellcheck test_build.sh build.sh
 
   test:
     needs: lint

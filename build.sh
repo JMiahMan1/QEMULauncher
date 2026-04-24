@@ -6,12 +6,11 @@ APP_VERSION="${1:-1.0}"
 OUTPUT_APP="$APP_NAME.app"
 
 # --- Source Files (Must be in the current directory) ---
-MAIN_SCRIPT="launcher.sh"
 PYTHON_APP="qemu_app.py"
 ICON_FILE="RunLinux.icns"
 
 # --- Pre-flight Check ---
-if [ ! -f "$MAIN_SCRIPT" ] || [ ! -f "$PYTHON_APP" ] || [ ! -f "$ICON_FILE" ]; then
+if [ ! -f "$PYTHON_APP" ] || [ ! -f "$ICON_FILE" ]; then
     echo "Error: Missing required source file(s) in the current directory."
     exit 1
 fi
