@@ -80,6 +80,7 @@ class TestMacOSLogic(unittest.TestCase):
 
                 AppKit.NSAppleScript = mock_nsapple
                 mock_script_instance = MagicMock()
+                mock_script_instance.executeAndReturnError_.return_value = (None, None)
                 mock_nsapple.alloc.return_value.initWithSource_.return_value = mock_script_instance
 
                 qemu_app.run_launcher(self.mock_config)
