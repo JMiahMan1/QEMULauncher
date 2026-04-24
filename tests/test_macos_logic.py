@@ -64,24 +64,28 @@ class TestMacOSLogic(unittest.TestCase):
         cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
         self.assertIn("vmnet-shared,id=net0", " ".join(cmd))
 
-    @patch("threading.Thread")
     @patch("subprocess.Popen")
     @patch("qemu_app.DisplayManager.get_target_display")
-    def test_elevation_trigger(self, mock_target, mock_popen, mock_thread):
-        """Verify that osascript elevation is used for vmnet."""
+    def test_elevation_trigger(self, mock_target, mock_popen):
+        """Verify that native elevation is used for vmnet."""
         mock_target.return_value = {"x": 0, "y": 0, "width": 100, "height": 100}
         self.mock_config["network_mode"] = "vmnet-shared"
-        qemu_app.run_launcher(self.mock_config)
 
-        # Verify that at least one Popen call used osascript with 'administrator privileges'
-        elevated_call_found = False
-        for call in mock_popen.call_args_list:
-            args, _ = call
-            if len(args[0]) > 2 and "osascript" in args[0] and "with administrator privileges" in args[0][2]:
-                elevated_call_found = True
-                break
+        # Patch in both places to be sure
+        with patch("qemu_app.sys.platform", "darwin"):
+            mock_nsapple = MagicMock()
+            # Patch the global AppKit module so 'from AppKit import NSAppleScript' works
+            with patch.dict("sys.modules", {"AppKit": MagicMock()}):
+                import AppKit
 
-        self.assertTrue(elevated_call_found, "Elevated osascript call not found in Popen history")
+                AppKit.NSAppleScript = mock_nsapple
+                mock_script_instance = MagicMock()
+                mock_nsapple.alloc.return_value.initWithSource_.return_value = mock_script_instance
+
+                qemu_app.run_launcher(self.mock_config)
+
+                # Verify that NSAppleScript was used
+                mock_nsapple.alloc.return_value.initWithSource_.assert_called_once()
 
     def test_config_io(self):
         """Test loading and saving configuration."""

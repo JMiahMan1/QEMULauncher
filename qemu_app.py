@@ -390,17 +390,44 @@ def run_launcher(config, dry_run=False):
     try:
         debug_print("Launching QEMU with command:", " ".join(qemu_command))
         if needs_root:
-            # We must use osascript for elevated privileges to trigger the GUI password prompt
-            cmd_str = " ".join(f"'{a}'" for a in qemu_command)
-            debug_print("Triggering elevated launch via osascript...")
-            proc = subprocess.Popen(
-                ["osascript", "-e", f'do shell script "{cmd_str}" with administrator privileges'], env=qemu_env
-            )
+            if sys.platform == "darwin":
+                # macOS Native elevation
+                try:
+                    from AppKit import NSAppleScript
+
+                    cmd_str = " ".join(f"'{a}'" for a in qemu_command)
+                    script_src = f'do shell script "{cmd_str}" with administrator privileges'
+                    script = NSAppleScript.alloc().initWithSource_(script_src)
+
+                    def _run_elevated():
+                        result, error = script.executeAndReturnError_(None)
+                        if error:
+                            debug_print(f"Elevated launch failed: {error}")
+                        else:
+                            debug_print("Elevated launch successful.")
+
+                    import threading
+
+                    threading.Thread(target=_run_elevated, daemon=True).start()
+                    proc = None
+                except ImportError:
+                    proc = subprocess.Popen(qemu_command, env=qemu_env)
+            else:
+                # Linux Native elevation via pkexec
+                try:
+                    debug_print("Triggering Linux elevation via pkexec...")
+                    proc = subprocess.Popen(["pkexec"] + qemu_command, env=qemu_env)
+                except Exception as e:
+                    debug_print(f"pkexec failed: {e}")
+                    proc = subprocess.Popen(qemu_command, env=qemu_env)
         else:
             proc = subprocess.Popen(qemu_command, env=qemu_env)
 
         if proc and proc.poll() is None:
             WindowManager.orchestrate_window(proc.pid, fullscreen=config.get("enable_fullscreen", True))
+        elif needs_root:
+            # For elevated launch, WindowManager will find the PID by name as a fallback
+            WindowManager.orchestrate_window(None, fullscreen=config.get("enable_fullscreen", True))
 
         return proc
 
