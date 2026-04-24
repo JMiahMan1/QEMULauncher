@@ -1,7 +1,6 @@
 PySide6
 platformdirs
 pydantic
-tomli; python_version < "3.11"
 pyobjc; sys_platform == "darwin"
 dmgbuild
 pyinstaller

@@ -2,6 +2,11 @@
 
 QEMU Launcher is a lightweight desktop controller for QEMU on macOS and Linux. It now uses a typed profile model, a Qt-based settings editor, platform-aware command generation, and a managed runtime layer with QMP sockets, pidfiles, and logs.
 
+## Requirements
+
+- Python 3.12 or newer
+- QEMU installed locally on the host
+
 ## Current Focus
 
 - Native-feeling settings UI with persistent profiles
@@ -14,16 +19,16 @@ QEMU Launcher is a lightweight desktop controller for QEMU on macOS and Linux. I
 
 ```bash
 # Open the launcher UI
-python3 qemu_app.py
+python3.12 qemu_app.py
 
 # Preview the current profile command
-python3 qemu_app.py --dry-run
+python3.12 qemu_app.py --dry-run
 
 # Launch the current profile without opening the UI
-python3 qemu_app.py --launch
+python3.12 qemu_app.py --launch
 
 # Verify bundled imports
-python3 qemu_app.py --integrity-check
+python3.12 qemu_app.py --integrity-check
 ```
 
 ## Testing
@@ -48,6 +53,6 @@ cp .env.example .env
 
 The local `.env` file is ignored by git. The tracked `.env.example` file is only a template.
 
-That script fetches the current branch on the remote Mac, installs dependencies, runs lint/tests, performs the integrity check, and runs the build. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
+That script fetches the current branch on the remote Mac, requires Python 3.12+, installs dependencies, runs lint/tests, performs the integrity check, and runs the build. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
 
 For recurring CI on real Apple hardware, use the self-hosted workflow in `.github/workflows/self-hosted-macos.yml`.

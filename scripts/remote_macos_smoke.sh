@@ -14,7 +14,7 @@ MAC_TEST_HOST="${MAC_TEST_HOST:-}"
 MAC_TEST_USER="${MAC_TEST_USER:-}"
 MAC_TEST_REPO_PATH="${MAC_TEST_REPO_PATH:-}"
 MAC_TEST_BRANCH="${MAC_TEST_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
-MAC_TEST_PYTHON="${MAC_TEST_PYTHON:-python3}"
+MAC_TEST_PYTHON="${MAC_TEST_PYTHON:-python3.12}"
 MAC_TEST_SSH_KEY="${MAC_TEST_SSH_KEY:-}"
 
 if [[ -z "$MAC_TEST_HOST" || -z "$MAC_TEST_USER" || -z "$MAC_TEST_REPO_PATH" ]]; then
@@ -41,6 +41,12 @@ cd "$MAC_TEST_REPO_PATH"
 git fetch --all --tags
 git checkout "$MAC_TEST_BRANCH"
 git pull --ff-only || true
+$MAC_TEST_PYTHON - <<'PY'
+import sys
+
+if sys.version_info < (3, 12):
+    raise SystemExit(f"Python 3.12+ is required on the remote Mac. Found {sys.version.split()[0]}.")
+PY
 $MAC_TEST_PYTHON -m pip install -r requirements.txt
 $MAC_TEST_PYTHON -m ruff check .
 $MAC_TEST_PYTHON -m pytest -q

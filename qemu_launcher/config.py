@@ -4,16 +4,12 @@ import configparser
 import os
 import secrets
 import string
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from platformdirs import PlatformDirs
 from pydantic import BaseModel, Field
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
-    import tomli as tomllib
 
 APP_NAME = "QEMU Launcher"
 APP_AUTHOR = "QEMULauncher"
