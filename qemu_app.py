@@ -99,10 +99,36 @@ class DisplayManager:
 
 class WindowManager:
     @staticmethod
-    def toggle_fullscreen(config=None):
-        """Toggles fullscreen state of the QEMU window."""
+    def _safe_import_ax():
+        """Safely imports AXUIElement functions from AppKit or ApplicationServices."""
         try:
             from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+
+            return AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+        except ImportError:
+            try:
+                from ApplicationServices import (
+                    AXUIElementCopyAttributeValue,
+                    AXUIElementCreateApplication,
+                    AXUIElementSetAttributeValue,
+                )
+
+                return AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+            except ImportError:
+                debug_print("Critical Error: Could not find AXUIElement functions in AppKit or ApplicationServices.")
+                return None, None, None
+
+    @staticmethod
+    def toggle_fullscreen(config=None):
+        """Toggles fullscreen state of the QEMU window."""
+        if AppKit is None or Quartz is None:
+            return
+
+        AXCopy, AXCreate, AXSet = WindowManager._safe_import_ax()
+        if not AXCopy:
+            return
+
+        try:
             from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll, kCGWindowOwnerPID
 
             window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
@@ -112,12 +138,12 @@ class WindowManager:
                     pid = window.get(kCGWindowOwnerPID)
 
                     # Try native Accessibility first
-                    app_ref = AXUIElementCreateApplication(pid)
-                    error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+                    app_ref = AXCreate(pid)
+                    error, windows = AXCopy(app_ref, "AXWindows", None)
                     if error == 0 and windows:
                         win = windows[0]
-                        error, current = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
-                        AXUIElementSetAttributeValue(win, "AXFullScreen", not current)
+                        error, current = AXCopy(win, "AXFullScreen", None)
+                        AXSet(win, "AXFullScreen", not current)
                         debug_print(f"Toggled fullscreen via AXUIElement for PID {pid}")
                         return
                     else:
@@ -150,7 +176,10 @@ class WindowManager:
         if AppKit is None or Quartz is None:
             return
 
-        from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
+        AXCopy, AXCreate, AXSet = WindowManager._safe_import_ax()
+        if not AXCopy:
+            return
+
         from Quartz import (
             CGWindowListCopyWindowInfo,
             kCGNullWindowID,
@@ -175,8 +204,8 @@ class WindowManager:
                         if actual_pid is None or win_pid == actual_pid:
                             actual_pid = win_pid
 
-                            app_ref = AXUIElementCreateApplication(actual_pid)
-                            error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+                            app_ref = AXCreate(actual_pid)
+                            error, windows = AXCopy(app_ref, "AXWindows", None)
 
                             if error == 0 and windows:
                                 win = windows[0]
@@ -184,15 +213,13 @@ class WindowManager:
 
                                 # 1. Position
                                 if target_display:
-                                    AXUIElementSetAttributeValue(
-                                        win, "AXPosition", (target_display["x"], target_display["y"])
-                                    )
+                                    AXSet(win, "AXPosition", (target_display["x"], target_display["y"]))
 
                                 # 2. Fullscreen
                                 if fullscreen:
                                     # Wait a tiny bit for the window to stabilize
                                     time.sleep(1)
-                                    AXUIElementSetAttributeValue(win, "AXFullScreen", True)
+                                    AXSet(win, "AXFullScreen", True)
 
                                 return
                 time.sleep(1)
