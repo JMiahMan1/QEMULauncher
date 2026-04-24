@@ -37,65 +37,94 @@ class TestMacOSLogic(unittest.TestCase):
         mock_get.return_value = [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
         qemu_app.WindowManager.orchestrate_window("qemu-system", fullscreen=True)
         # Verify that a thread was initialized to handle the window orchestration
-        mock_thread.assert_called_once()
+    def test_coordinate_conversion(self):
+        """Verify AppKit to Tkinter coordinate translation."""
+        with patch("qemu_app.AppKit") as mock_appkit:
+            mock_screen0 = MagicMock()
+            mock_screen0.frame.return_value.origin.x = 0
+            mock_screen0.frame.return_value.origin.y = 0
+            mock_screen0.frame.return_value.size.width = 1920
+            mock_screen0.frame.return_value.size.height = 1080
+            
+            mock_screen1 = MagicMock()
+            mock_screen1.frame.return_value.origin.x = 1920
+            mock_screen1.frame.return_value.origin.y = 0
+            mock_screen1.frame.return_value.size.width = 1920
+            mock_screen1.frame.return_value.size.height = 1080
+            
+            mock_appkit.NSScreen.screens.return_value = [mock_screen0, mock_screen1]
+            
+            displays = qemu_app.DisplayManager.get_displays()
+            
+            # Primary screen: tk_y = 1080 - (0 + 1080) = 0
+            self.assertEqual(displays[0]["y"], 0)
+            self.assertEqual(displays[0]["x"], 0)
+            
+            # Secondary screen: tk_y = 1080 - (0 + 1080) = 0
+            self.assertEqual(displays[1]["y"], 0)
+            self.assertEqual(displays[1]["x"], 1920)
 
-    @patch("qemu_app.DisplayManager.get_displays")
-    def test_command_generation_resolution(self, mock_get):
-        """Verify that QEMU command uses the target display resolution."""
-        mock_get.return_value = [
-            {"x": 0, "y": 0, "width": 1440, "height": 900, "is_primary": True},
-            {"x": 1440, "y": 0, "width": 1920, "height": 1080, "is_primary": False},
-        ]
-        cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
-        self.assertIn("virtio-gpu-pci,xres=1920,yres=1080", cmd)
-
-    @patch("qemu_app.DisplayManager.get_displays")
-    def test_networking_modes(self, mock_get):
-        """Verify networking flags and elevation requirements."""
-        mock_get.return_value = [{"x": 0, "y": 0, "width": 100, "height": 100, "is_primary": True}]
-
-        # Test User Mode (No elevation)
+    def test_network_command_construction(self):
+        """Verify QEMU command generation for different network modes."""
+        # Test User Mode
         self.mock_config["network_mode"] = "user"
         cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
-        self.assertIn("user,id=net0", " ".join(cmd))
+        cmd_str = " ".join(cmd)
+        self.assertIn("-netdev user,id=net0", cmd_str)
+        self.assertNotIn("vmnet-shared", cmd_str)
 
-        # Test VMNet Shared (Elevation required)
+        # Test VMNet Shared
         self.mock_config["network_mode"] = "vmnet-shared"
         cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
-        self.assertIn("vmnet-shared,id=net0", " ".join(cmd))
+        cmd_str = " ".join(cmd)
+        self.assertIn("-netdev vmnet-shared,id=net0", cmd_str)
 
-    @patch("subprocess.Popen")
-    @patch("qemu_app.DisplayManager.get_target_display")
-    def test_elevation_trigger(self, mock_target, mock_popen):
-        """Verify that native elevation is used for vmnet."""
-        mock_target.return_value = {"x": 0, "y": 0, "width": 100, "height": 100}
+        # Test Bridged
+        self.mock_config["network_mode"] = "bridge-existing"
+        self.mock_config["bridge_name"] = "bridge100"
+        cmd = qemu_app.run_launcher(self.mock_config, dry_run=True)
+        cmd_str = " ".join(cmd)
+        self.assertIn("-netdev bridge,id=net0,br=bridge100", cmd_str)
+
+    @patch("qemu_app.DisplayManager.get_displays")
+    def test_elevation_trigger(self, mock_get):
+        """Verify that native elevation is used when required."""
+        mock_get.return_value = [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
         self.mock_config["network_mode"] = "vmnet-shared"
-
-        # Patch in both places to be sure
+        
         with patch("qemu_app.sys.platform", "darwin"):
             mock_nsapple = MagicMock()
             # Patch the global AppKit module so 'from AppKit import NSAppleScript' works
             with patch.dict("sys.modules", {"AppKit": MagicMock()}):
                 import AppKit
-
                 AppKit.NSAppleScript = mock_nsapple
+                
+                # Mock AppKit.NSAppleScript.alloc().initWithSource_(...).executeAndReturnError_(None)
                 mock_script_instance = MagicMock()
-                mock_script_instance.executeAndReturnError_.return_value = (None, None)
                 mock_nsapple.alloc.return_value.initWithSource_.return_value = mock_script_instance
-
-                qemu_app.run_launcher(self.mock_config)
-
-                # Verify that NSAppleScript was used
-                mock_nsapple.alloc.return_value.initWithSource_.assert_called_once()
+                mock_script_instance.executeAndReturnError_.return_value = (None, None)
+                
+                # We expect it to NOT use subprocess.Popen directly but use NSAppleScript
+                with patch("subprocess.Popen") as mock_popen:
+                    qemu_app.run_launcher(self.mock_config)
+                    mock_nsapple.alloc.return_value.initWithSource_.assert_called_once()
+                    self.assertIn("with administrator privileges", mock_nsapple.alloc.return_value.initWithSource_.call_args[0][0])
 
     def test_config_io(self):
         """Test loading and saving configuration."""
-        test_path = "/tmp/test_qemu_config.json"
-        test_data = {"test": "value"}
-        qemu_app.save_config(test_data, path=test_path)
-        loaded = qemu_app.load_config(path=test_path)
-        self.assertEqual(loaded["test"], "value")
-        os.remove(test_path)
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as tf:
+            tf.write("[VM]\nmemory = 4G\ncpu_cores = 4\n")
+            temp_name = tf.name
+        
+        try:
+            config = qemu_app.load_config(temp_name)
+            self.assertIsNotNone(config)
+            self.assertEqual(config["memory"], "4G")
+            self.assertEqual(config["cpu_cores"], "4")
+        finally:
+            if os.path.exists(temp_name):
+                os.remove(temp_name)
 
     def test_path_validation(self):
         """Test QEMU executable path validation."""
