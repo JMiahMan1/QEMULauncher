@@ -7,12 +7,14 @@ import shutil
 import signal
 import socket
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .capabilities import QemuCapabilities, probe_qemu
 from .config import AppPaths, VMProfile
+from .display import arrange_window, should_qemu_handle_fullscreen
 
 
 class ConfigurationError(RuntimeError):
@@ -244,7 +246,7 @@ def build_command(
         f"unix:{artifacts.qmp_socket},server=on,wait=off",
     ]
 
-    if profile.enable_fullscreen and display != "none":
+    if should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen) and display != "none":
         command.append("-full-screen")
 
     if firmware:
@@ -341,6 +343,7 @@ class VMController:
         self.state_dir = state_dir
         self.process: subprocess.Popen[str] | None = None
         self.virtiofsd_process: subprocess.Popen[str] | None = None
+        self.display_note: str | None = None
 
     def preview_command(self) -> list[str]:
         return build_command(self.profile, self.capabilities, self.artifacts, restore_state=True)
@@ -416,7 +419,31 @@ class VMController:
         self._start_virtiofsd()
         command = build_command(self.profile, self.capabilities, self.artifacts, restore_state=True)
         self.process = subprocess.Popen(command, env=_clean_env(), text=True)
+        self._start_display_arrangement()
         return self.process
+
+    def _start_display_arrangement(self) -> None:
+        if not self.process or self.process.poll() is not None:
+            return
+        if not self.profile.target_display_name or should_qemu_handle_fullscreen(
+            self.profile.target_display_name, self.profile.enable_fullscreen
+        ):
+            self.display_note = None
+            return
+        self.display_note = (
+            f"Placing VM on {self.profile.target_display_name}; host accessibility/window-control permission may be required."
+        )
+
+        def worker() -> None:
+            note = arrange_window(
+                self.process.pid,
+                self.profile.target_display_name,
+                fullscreen=self.profile.enable_fullscreen,
+            )
+            if note:
+                self.display_note = note
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def connect_qmp(self) -> QmpClient:
         client = QmpClient(self.artifacts.qmp_socket)

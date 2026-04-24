@@ -18,6 +18,7 @@ from qemu_launcher.config import (
     save_profile,
     save_settings,
 )
+from qemu_launcher.display import should_qemu_handle_fullscreen
 from qemu_launcher.vm import RuntimeArtifacts, VMController, build_command, resolve_sharing
 
 
@@ -167,6 +168,25 @@ def test_macos_command_uses_macos_backends(tmp_path: Path):
     assert "gtk" not in cmd
     assert "pipewire" not in cmd
     assert "kvm" not in cmd
+
+
+def test_non_primary_display_uses_post_launch_fullscreen(tmp_path: Path):
+    profile = VMProfile(
+        name="Linux VM",
+        architecture="x86_64",
+        qemu_executable="/usr/bin/qemu-system-x86_64",
+        disk_path="/tmp/disk.qcow2",
+        target_display_name="Projector",
+        enable_fullscreen=True,
+    )
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+    )
+    command = build_command(profile, fake_caps(), artifacts, host_platform="linux")
+    assert "-full-screen" not in command
+    assert should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen) is False
 
 
 def test_virtiofs_requires_socket(tmp_path: Path):

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -41,25 +41,18 @@ from .config import (
     save_profile,
     save_settings,
 )
+from .display import PRIMARY_DISPLAY_NAME, available_displays
 from .vm import ConfigurationError, VMController, resolve_sharing, shell_join
 
 
 def detect_screens() -> list[str]:
-    app = QGuiApplication.instance()
-    if not app:
-        return ["Primary Display"]
-    screens = []
-    for index, screen in enumerate(app.screens()):
-        name = screen.name() or f"Display {index + 1}"
-        if screen is app.primaryScreen():
-            name = f"{name} (Primary)"
-        screens.append(name)
-    return screens or ["Primary Display"]
+    screens = [display.name for display in available_displays()]
+    return screens or [PRIMARY_DISPLAY_NAME]
 
 
 def smart_profile_defaults() -> VMProfile:
     profile = build_default_profile(name="New VM")
-    profile.target_display_name = "Primary Display"
+    profile.target_display_name = PRIMARY_DISPLAY_NAME
     return profile
 
 
@@ -387,7 +380,7 @@ class MainWindow(QMainWindow):
         profile.firmware_path = self.firmware_edit.text().strip()
         profile.memory_mib = self.memory_spin.value()
         profile.cpu_cores = self.cpu_spin.value()
-        profile.target_display_name = self.display_combo.currentText() or "Primary Display"
+        profile.target_display_name = self.display_combo.currentText() or PRIMARY_DISPLAY_NAME
         profile.enable_fullscreen = self.fullscreen_check.isChecked()
         profile.display_backend = self.display_backend_combo.currentText()
         profile.graphics_mode = self.graphics_combo.currentText()
@@ -479,11 +472,12 @@ class MainWindow(QMainWindow):
         try:
             launched = controller.launch()
             if launched is None and controller.is_running():
-                self.status_label.setText(
-                    f"{profile.name} is already running. QMP: {controller.artifacts.qmp_socket}"
-                )
+                message = f"{profile.name} is already running. QMP: {controller.artifacts.qmp_socket}"
             else:
-                self.status_label.setText(f"Launched {profile.name}. QMP: {controller.artifacts.qmp_socket}")
+                message = f"Launched {profile.name}. QMP: {controller.artifacts.qmp_socket}"
+            if controller.display_note:
+                message = f"{message}\n{controller.display_note}"
+            self.status_label.setText(message)
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
