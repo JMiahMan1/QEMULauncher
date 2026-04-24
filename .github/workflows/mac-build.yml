@@ -72,11 +72,15 @@ jobs:
         run: |
           chmod +x build.sh
           ./build.sh
+      - name: Create DMG Installer
+        run: |
+          # Create a DMG for distribution
+          hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder "${{ env.APP_NAME }}.app" -ov -format UDZO "${{ env.APP_NAME }}.dmg"
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: "${{ env.APP_NAME }}-macOS"
-          path: "${{ env.APP_NAME }}.app"
+          path: "${{ env.APP_NAME }}.dmg"
 
   build-linux:
     needs: test
@@ -123,7 +127,6 @@ jobs:
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: "${{ env.APP_NAME }}-Linux-${{ matrix.arch }}"
-          path: |
-            dist/qemu-launcher-linux
-            *.rpm
+          name: "qemu-launcher-${{ matrix.arch }}.rpm"
+          path: "*.rpm"
+          if-no-files-found: error
