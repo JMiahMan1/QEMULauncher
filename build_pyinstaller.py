@@ -1,5 +1,6 @@
 from PyInstaller.__main__ import run
 
+
 def build():
     opts = [
         'qemu_app.py',
