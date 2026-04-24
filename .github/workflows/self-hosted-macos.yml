@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - codex-qemu-launcher-refactor
+      - qemu-launcher-refactor
 
 env:
   QT_QPA_PLATFORM: offscreen

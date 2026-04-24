@@ -39,12 +39,15 @@ pytest -q
 For a Mac on your network, use the SSH smoke script:
 
 ```bash
-MAC_TEST_HOST=<mac-or-dns-name> \
-MAC_TEST_USER=<macos-user> \
-MAC_TEST_REPO_PATH=/Users/<macos-user>/Code/QEMULauncher \
+# Copy the template once and fill in your local values
+cp .env.example .env
+
+# Then run the smoke script; it reads .env automatically
 ./scripts/remote_macos_smoke.sh
 ```
 
-That script fetches the current branch on the remote Mac, installs dependencies, runs lint/tests, performs the integrity check, and runs the build.
+The local `.env` file is ignored by git. The tracked `.env.example` file is only a template.
+
+That script fetches the current branch on the remote Mac, installs dependencies, runs lint/tests, performs the integrity check, and runs the build. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
 
 For recurring CI on real Apple hardware, use the self-hosted workflow in `.github/workflows/self-hosted-macos.yml`.
