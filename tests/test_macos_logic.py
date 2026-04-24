@@ -105,7 +105,7 @@ class TestMacOSLogic(unittest.TestCase):
                 mock_script_instance.executeAndReturnError_.return_value = (None, None)
                 
                 # We expect it to NOT use subprocess.Popen directly but use NSAppleScript
-                with patch("subprocess.Popen") as mock_popen:
+                with patch("subprocess.Popen"):
                     qemu_app.run_launcher(self.mock_config)
                     mock_nsapple.alloc.return_value.initWithSource_.assert_called_once()
                     self.assertIn("with administrator privileges", mock_nsapple.alloc.return_value.initWithSource_.call_args[0][0])
