@@ -1,6 +1,8 @@
 import argparse
 import configparser
 import datetime
+import encodings  # noqa: F401
+import encodings.utf_8  # noqa: F401
 import json
 import os
 import subprocess
