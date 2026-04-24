@@ -38,7 +38,8 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # Our build_pyinstaller.py uses --windowed which creates dist/QEMU Launcher.app
         
     if [ -d "dist/$OUTPUT_APP" ]; then
-        echo "-> PyInstaller build successful."
+        echo "-> PyInstaller build successful. Moving to root..."
+        mv "dist/$OUTPUT_APP" "./$OUTPUT_APP"
     else
         echo "Error: PyInstaller failed to create $OUTPUT_APP"
         exit 1
@@ -46,11 +47,11 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 
     # 4. Ad-hoc Signing
     echo "-> Applying ad-hoc signature..."
-    codesign --force --deep --sign - "dist/$OUTPUT_APP"
+    codesign --force --deep --sign - "./$OUTPUT_APP"
 
     # 5. Integrity Check: Verify internal structure
     echo "-> Verifying internal bundle structure..."
-    if [ ! -f "dist/$OUTPUT_APP/Contents/MacOS/QEMU Launcher" ]; then
+    if [ ! -f "./$OUTPUT_APP/Contents/MacOS/QEMU Launcher" ]; then
          echo "Error: Main binary missing from bundle."
          exit 1
     fi
