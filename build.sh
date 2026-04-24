@@ -45,18 +45,25 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
         exit 1
     fi
 
-    # 4. Ad-hoc Signing
-    echo "-> Applying ad-hoc signature..."
-    codesign --force --deep --sign - "./$OUTPUT_APP"
+    # 4. Add Plist Keys for Hardware Access
+    echo "-> Adding usage descriptions to Info.plist..."
+    PLIST="./$OUTPUT_APP/Contents/Info.plist"
+    plutil -replace NSMicrophoneUsageDescription -string "QEMU needs microphone access to route your audio input to the guest VM." "$PLIST"
+    plutil -replace NSCameraUsageDescription -string "QEMU needs camera access to route your video input to the guest VM." "$PLIST"
+    plutil -replace NSHighResolutionCapable -bool YES "$PLIST"
 
-    # 5. Integrity Check: Verify internal structure
+    # 5. Ad-hoc Signing with Entitlements
+    echo "-> Applying ad-hoc signature with entitlements..."
+    codesign --force --deep --sign - --entitlements entitlements.plist "./$OUTPUT_APP"
+
+    # 6. Integrity Check: Verify internal structure
     echo "-> Verifying internal bundle structure..."
     if [ ! -f "./$OUTPUT_APP/Contents/MacOS/QEMU Launcher" ]; then
          echo "Error: Main binary missing from bundle."
          exit 1
     fi
 else
-    echo "-> Skipping py2app bundling (Not on macOS). Creating mock bundle for test compatibility..."
+    echo "-> Skipping macOS bundling (Not on macOS). Creating mock bundle for test compatibility..."
     mkdir -p "$OUTPUT_APP"
 fi
 

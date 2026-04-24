@@ -13,6 +13,7 @@ def build():
         '--hidden-import=pynput.mouse._darwin',
         '--hidden-import=screeninfo.drivers.osx',
         '--collect-all=encodings',
+        '--osx-bundle-identifier=com.qemu.launcher',
         '--clean',
         '--noconfirm',
     ]
