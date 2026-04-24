@@ -48,31 +48,102 @@ def debug_print(*args, **kwargs):
 # ================================================================
 # UTILITY FUNCTIONS
 # ================================================================
-def get_screen_count():
-    try:
-        return len(AppKit.NSScreen.screens())
-    except Exception:
-        return 1
+# ================================================================
+# WINDOW & DISPLAY MANAGEMENT
+# ================================================================
+class DisplayManager:
+    @staticmethod
+    def get_displays():
+        if AppKit is None:
+            return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
+        
+        try:
+            screens = AppKit.NSScreen.screens()
+            displays = []
+            for i, screen in enumerate(screens):
+                frame = screen.frame()
+                displays.append({
+                    "index": i,
+                    "x": int(frame.origin.x),
+                    "y": int(frame.origin.y),
+                    "width": int(frame.size.width),
+                    "height": int(frame.size.height),
+                    "is_primary": i == 0
+                })
+            return displays
+        except Exception:
+            return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
+
+    @staticmethod
+    def get_target_display():
+        displays = DisplayManager.get_displays()
+        if len(displays) > 1:
+            return displays[1]  # Return secondary
+        return displays[0]  # Return primary
 
 
-def move_qemu_to_screen(window_pid, screen_index=1):
-    try:
-        screens = AppKit.NSScreen.screens()
-        if screen_index >= len(screens):
-            screen_index = 0
-        screen = screens[screen_index]
-        frame = screen.frame()
-        script = f"""
-        tell application "System Events"
-            set qemuWin to first window of (first process whose unix id is {window_pid})
-            set position of qemuWin to {{ {int(frame.origin.x)}, {int(frame.origin.y)} }}
-            set size of qemuWin to {{ {int(frame.size.width)}, {int(frame.size.height)} }}
-        end tell
-        """
-        subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-        debug_print(f"Moved QEMU window {window_pid} to screen {screen_index}")
-    except Exception as e:
-        debug_print(f"Failed to move QEMU window {window_pid}: {e}")
+class WindowManager:
+    @staticmethod
+    def orchestrate_window(window_pid, fullscreen=True):
+        def _orchestrate():
+            time.sleep(2)  # Wait for window to appear
+            target = DisplayManager.get_target_display()
+            script = f'''
+            tell application "System Events"
+                set qemuWin to first window of (first process whose unix id is {window_pid})
+                set position of qemuWin to {{ {target['x']}, {target['y']} }}
+                set size of qemuWin to {{ {target['width']}, {target['height']} }}
+            end tell
+            '''
+            try:
+                subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
+                debug_print(f"Orchestrated window {window_pid} to display at {target['x']},{target['y']}")
+            except Exception as e:
+                debug_print(f"Orchestration failed: {e}")
+
+        import threading
+        threading.Thread(target=_orchestrate, daemon=True).start()
+
+
+class GestureMonitor:
+    @staticmethod
+    def start(settings_callback):
+        def _monitor():
+            if AppKit is None:
+                debug_print("AppKit not available, GestureMonitor exiting.")
+                return
+            
+            hover_start = None
+            debug_print("GestureMonitor started.")
+            
+            while True:
+                try:
+                    # Get mouse location relative to primary screen
+                    loc = AppKit.NSEvent.mouseLocation()
+                    screen = AppKit.NSScreen.screens()[0]
+                    screen_w = screen.frame().size.width
+                    screen_h = screen.frame().size.height
+                    
+                    # Target: Top center zone (15px height, center 16% width)
+                    in_x = (screen_w * 0.42) < loc.x < (screen_w * 0.58)
+                    in_y = loc.y >= (screen_h - 15)
+                    
+                    if in_x and in_y:
+                        if hover_start is None:
+                            hover_start = time.time()
+                        elif time.time() - hover_start >= 3: # 3s hover trigger
+                            debug_print("Gesture trigger activated!")
+                            settings_callback()
+                            hover_start = None
+                            time.sleep(10) # Cooldown
+                    else:
+                        hover_start = None
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+        import threading
+        threading.Thread(target=_monitor, daemon=True).start()
 
 
 def validate_qemu_executable(executable_path):
@@ -123,12 +194,12 @@ def get_smart_defaults(for_arch=None):
     return defaults
 
 
-def load_config(config_path=None):
-    path = Path(config_path) if config_path else CONFIG_FILE
+def load_config(path=None):
+    config_path = Path(path) if path else CONFIG_FILE
     config = configparser.ConfigParser()
-    if not path.is_file():
+    if not config_path.is_file():
         return None
-    config.read(path)
+    config.read(config_path)
     return {
         "arch": config.get("VM", "arch", fallback="aarch64"),
         "qemu_executable": config.get("VM", "qemu_executable", fallback=""),
@@ -145,11 +216,12 @@ def load_config(config_path=None):
     }
 
 
-def save_config(values):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+def save_config(values, path=None):
+    config_path = Path(path) if path else CONFIG_FILE
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config = configparser.ConfigParser()
     config["VM"] = {k: str(v) for k, v in values.items()}
-    with open(CONFIG_FILE, "w") as f:
+    with open(config_path, "w") as f:
         config.write(f)
 
 
@@ -273,9 +345,7 @@ def run_launcher(config, dry_run=False):
             proc = subprocess.Popen(qemu_command, env=qemu_env)
 
         if proc and proc.poll() is None:
-            time.sleep(2)
-            if get_screen_count() > 1:
-                move_qemu_to_screen(proc.pid)
+            WindowManager.orchestrate_window(proc.pid, fullscreen=config.get("enable_fullscreen", True))
 
         return proc
 
@@ -481,6 +551,9 @@ if __name__ == "__main__":
     os.environ["PATH"] = current_path
 
     config = load_config(args.config)
+    
+    # Start background monitor
+    GestureMonitor.start(lambda: run_setup_ui(config))
 
     if args.dry_run:
         if config:
