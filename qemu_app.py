@@ -91,6 +91,11 @@ class WindowManager:
             import time
 
             try:
+                from AppKit import (
+                    AXUIElementCopyAttributeValue,
+                    AXUIElementCreateApplication,
+                    AXUIElementSetAttributeValue,
+                )
                 from Quartz import (
                     CGWindowListCopyWindowInfo,
                     kCGNullWindowID,
@@ -98,51 +103,45 @@ class WindowManager:
                     kCGWindowOwnerPID,
                 )
             except ImportError:
-                debug_print("Quartz not available for window orchestration.")
+                debug_print("Quartz/AppKit not available for window orchestration.")
                 return
 
             debug_print(f"Orchestrating window for process {process_pid}...")
             target = DisplayManager.get_target_display()
 
-            # If launched via osascript, the process_pid belongs to osascript.
-            # We need to wait and find the child QEMU process or find by name.
-            qemu_win = None
-            for _ in range(15):  # Try for 15 seconds
+            # Find actual QEMU PID (might be different if elevated)
+            actual_pid = None
+            for _ in range(15):
                 window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
                 for window in window_list:
-                    owner_name = window.get("kCGWindowOwnerName", "")
-                    if "qemu-system" in owner_name.lower():
-                        qemu_win = window
+                    if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
                         actual_pid = window.get(kCGWindowOwnerPID)
                         break
-                if qemu_win:
+                if actual_pid:
                     break
                 time.sleep(1)
 
-            if not qemu_win:
-                debug_print("Could not find QEMU window via Quartz.")
+            if not actual_pid:
+                debug_print("Could not find QEMU window PID.")
                 return
 
-            actual_pid = qemu_win.get(kCGWindowOwnerPID)
-            script = f"""
-            tell application "System Events"
-                set qemuProc to first process whose unix id is {actual_pid}
-                set frontmost of qemuProc to true
-                set qemuWin to first window of qemuProc
-                set position of qemuWin to {{ {target["x"]}, {target["y"]} }}
-                set size of qemuWin to {{ {target["width"]}, {target["height"]} }}
-                if {str(fullscreen).lower()} then
-                    delay 0.5
-                    -- Standard macOS Fullscreen shortcut
-                    keystroke "f" using {{command down, control down}}
-                end if
-            end tell
-            """
-            try:
-                subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-                debug_print(f"Successfully orchestrated QEMU (PID {actual_pid}) to {target['x']},{target['y']}")
-            except Exception as e:
-                debug_print(f"Orchestration script failed: {e}")
+            # Use Accessibility API to move and fullscreen
+            app_ref = AXUIElementCreateApplication(actual_pid)
+            error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+            if error == 0 and windows:
+                qemu_win = windows[0]
+                # Set Position
+                pos = (target["x"], target["y"])
+                AXUIElementSetAttributeValue(qemu_win, "AXPosition", pos)
+                # Set Size
+                size = (target["width"], target["height"])
+                AXUIElementSetAttributeValue(qemu_win, "AXSize", size)
+                # Set Fullscreen
+                if fullscreen:
+                    AXUIElementSetAttributeValue(qemu_win, "AXFullScreen", True)
+                debug_print(f"Native orchestration successful for PID {actual_pid}")
+            else:
+                debug_print(f"Accessibility API failed to find windows: {error}")
 
         import threading
 
@@ -615,16 +614,20 @@ if __name__ == "__main__":
     root.withdraw()
 
     def toggle_fullscreen(event=None):
-        # Find QEMU process and send fullscreen command
         try:
+            from AppKit import AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementSetAttributeValue
             from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll, kCGWindowOwnerPID
 
             window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
             for window in window_list:
                 if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
                     pid = window.get(kCGWindowOwnerPID)
-                    script = f'tell application "System Events" to tell process id {pid} to keystroke "f" using {{command down, control down}}'
-                    subprocess.run(["osascript", "-e", script])
+                    app_ref = AXUIElementCreateApplication(pid)
+                    error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
+                    if error == 0 and windows:
+                        win = windows[0]
+                        error, current = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
+                        AXUIElementSetAttributeValue(win, "AXFullScreen", not current)
                     break
         except Exception:
             pass
