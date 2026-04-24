@@ -406,13 +406,19 @@ def run_launcher(config, dry_run=False):
     needs_root = net_mode != "user"
     try:
         debug_print(f"Final Command Construction: needs_root={needs_root}")
+        
+        # Robust shell escaping for AppleScript/Shell
+        def sh_escape(s):
+            return "'" + s.replace("'", "'\\''") + "'"
+        
+        escaped_command = [sh_escape(a) for a in qemu_command]
         debug_print("Full QEMU command:", " ".join(qemu_command))
         
         if needs_root:
             if sys.platform == "darwin":
                 # macOS Native elevation
                 from AppKit import NSAppleScript
-                cmd_str = " ".join(f"'{a}'" for a in qemu_command)
+                cmd_str = " ".join(escaped_command)
                 debug_print(f"Executing elevated script: {cmd_str}")
                 script_src = f'do shell script "{cmd_str}" with administrator privileges'
                 script = NSAppleScript.alloc().initWithSource_(script_src)
@@ -660,15 +666,30 @@ if __name__ == "__main__":
             for window in window_list:
                 if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
                     pid = window.get(kCGWindowOwnerPID)
+                    
+                    # Try native Accessibility first
                     app_ref = AXUIElementCreateApplication(pid)
                     error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
                     if error == 0 and windows:
                         win = windows[0]
                         error, current = AXUIElementCopyAttributeValue(win, "AXFullScreen", None)
                         AXUIElementSetAttributeValue(win, "AXFullScreen", not current)
+                    else:
+                        # Fallback to Native Quartz Keystroke (Cmd+Ctrl+F)
+                        # 'f' is keycode 3
+                        from Quartz import (
+                            CGEventCreateKeyboardEvent, CGEventPost, kCGHIDEventTap, 
+                            kCGEventFlagMaskCommand, kCGEventFlagMaskControl, CGEventSetFlags
+                        )
+                        f_down = CGEventCreateKeyboardEvent(None, 3, True)
+                        CGEventSetFlags(f_down, kCGEventFlagMaskCommand | kCGEventFlagMaskControl)
+                        CGEventPost(kCGHIDEventTap, f_down)
+                        
+                        f_up = CGEventCreateKeyboardEvent(None, 3, False)
+                        CGEventPost(kCGHIDEventTap, f_up)
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            debug_print(f"Fullscreen toggle failed: {e}")
 
     # Setup Menu Bar
     menubar = tk.Menu(root)
@@ -697,4 +718,23 @@ if __name__ == "__main__":
         run_setup_ui(config, parent_root=root)
     else:
         run_launcher(config)
-        root.mainloop()
+    # Global Hotkey Monitor for macOS
+    if sys.platform == "darwin" and AppKit:
+        try:
+            from AppKit import NSEvent, NSKeyDownMask, NSCommandKeyMask, NSControlKeyMask
+            
+            def global_key_handler(event):
+                # Check for Cmd+Ctrl+F (Keycode 3 is 'f')
+                if event.keyCode() == 3:
+                    flags = event.modifierFlags()
+                    if (flags & NSCommandKeyMask) and (flags & NSControlKeyMask):
+                        debug_print("Global Cmd+Ctrl+F detected!")
+                        toggle_fullscreen()
+                return event
+
+            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(NSKeyDownMask, global_key_handler)
+            debug_print("Global macOS hotkey monitor active.")
+        except Exception as e:
+            debug_print(f"Failed to setup global hotkey monitor: {e}")
+
+    root.mainloop()
