@@ -4,12 +4,12 @@ A professional, native macOS orchestration tool for QEMU virtual machines. This 
 
 ## 🌟 Key Features
 
-*   **Intelligent Window Orchestration:** Automatically detects secondary displays and seamlessly launches your VM into fullscreen on the monitor of your choice.
+*   **Intelligent Window Orchestration:** Automatically detects secondary displays and seamlessly launches your VM into fullscreen on the monitor of your choice using native macOS Accessibility APIs.
+*   **Persistent Hotspot:** A vivid, topmost hotspot at the top of your screen allows instant access to settings and VM info even while QEMU is active.
+*   **Global Fullscreen Shortcut:** Toggle your VM's fullscreen state from anywhere with `Cmd+Ctrl+F`, powered by a native macOS global event monitor.
 *   **Professional CLI Interface:** Supports `--dry-run` to inspect generated commands, `--config` for custom settings, and `--setup` for guided reconfiguration.
 *   **Hardware Passthrough:** Full support for Webcam, Microphone, High-Definition Audio (HDA), and Shared Folders (`virtio-9p-pci`).
-*   **Automatic Migration:** Seamlessly upgrades legacy `.ini` configurations to the modern `.json` standard.
-*   **Native Experience:** Built as a standard `.app` bundle with automated dependency checks and guided Homebrew installation.
-*   **CI/CD Hardened:** Fully validated through a cross-platform GitHub Actions pipeline using logic-based verification and automated linting.
+*   **Native & Cross-Platform:** Distributed as raw, unzipped `.dmg` (macOS) and Fedora-compatible `.rpm` (Linux) via automated GitHub Releases.
 
 ## 🛠️ Requirements & Installation
 
