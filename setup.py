@@ -20,6 +20,7 @@ OPTIONS = {
     "packages": ["pynput", "screeninfo", "AppKit", "encodings"],
     "includes": ["encodings.*"],
     "site_packages": True,
+    "use_pythonpath": False,
 }
 
 setup(

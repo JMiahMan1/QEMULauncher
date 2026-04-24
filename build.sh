@@ -37,6 +37,12 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
         # 4. Ad-hoc Signing (Restored from original logic)
         echo "-> Applying ad-hoc signature..."
         codesign --force --deep --sign - "./$OUTPUT_APP"
+
+        # 5. Integrity Check: Verify internal structure
+        echo "-> Verifying internal bundle structure..."
+        if [ ! -d "./$OUTPUT_APP/Contents/Resources/lib" ]; then
+             echo "Warning: Bundle library structure looks suspicious (may not be standalone)."
+        fi
     else
         echo "Error: No .app bundle found in dist/ directory."
         exit 1
