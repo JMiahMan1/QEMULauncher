@@ -19,6 +19,9 @@ try:
 except ImportError:
     Quartz = None
 
+# Global Process Tracker
+CURRENT_QEMU_PROCESS = None
+
 # ================================================================
 # BUNDLE HARDENING: Early imports for PyInstaller
 # ================================================================
@@ -140,6 +143,12 @@ class WindowManager:
                     # Try native Accessibility first
                     app_ref = AXCreate(pid)
                     error, windows = AXCopy(app_ref, "AXWindows", None)
+
+                    if error != 0 or not windows:
+                        # Fallback to focused window of that app
+                        error, focused = AXCopy(app_ref, "AXFocusedWindow", None)
+                        windows = [focused] if error == 0 and focused else []
+
                     if error == 0 and windows:
                         win = windows[0]
                         error, current = AXCopy(win, "AXFullScreen", None)
@@ -239,8 +248,8 @@ class HotspotWindow:
         # Use a more robust way to hide title bar on macOS
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
-        self.window.attributes("-alpha", 0.95)
-        self.window.configure(bg="#ff0000")  # STARK RED
+        self.window.attributes("-alpha", 0.6)
+        self.window.configure(bg="#1a2b3c")  # Subtle Deep Blue
 
         # Position at top center of target display
         target = DisplayManager.get_target_display()
@@ -270,7 +279,7 @@ class HotspotWindow:
         self.check_hover()
 
     def on_leave(self):
-        self.window.configure(bg="#ff0000")
+        self.window.configure(bg="#1a2b3c")
         self.hover_start = None
 
     def check_hover(self):
@@ -375,10 +384,27 @@ def show_error(title, message):
     root.destroy()
 
 
-# ================================================================
-# QEMU LAUNCHER
-# ================================================================
+def kill_existing_qemu():
+    """Kills any QEMU processes managed by this launcher."""
+    global CURRENT_QEMU_PROCESS
+    if CURRENT_QEMU_PROCESS:
+        try:
+            debug_print(f"Terminating existing QEMU process (PID {CURRENT_QEMU_PROCESS.pid})...")
+            CURRENT_QEMU_PROCESS.terminate()
+            CURRENT_QEMU_PROCESS.wait(timeout=5)
+        except Exception as e:
+            debug_print(f"Failed to gracefully terminate QEMU: {e}")
+            try:
+                CURRENT_QEMU_PROCESS.kill()
+            except Exception:
+                pass
+        CURRENT_QEMU_PROCESS = None
+
+
 def run_launcher(config, dry_run=False):
+    if not dry_run:
+        kill_existing_qemu()
+
     if not config or not config.get("disk_path") or not config.get("qemu_executable"):
         debug_print("Launch cancelled: configuration is invalid.")
         return
@@ -386,6 +412,9 @@ def run_launcher(config, dry_run=False):
     qemu_executable = config["qemu_executable"]
     firmware_path = config["firmware_path"]
     disk_path = config["disk_path"]
+
+    # Fullscreen at start
+    fs_val = "on" if config.get("enable_fullscreen") else "off"
 
     # Base Command
     qemu_command = [
@@ -407,7 +436,7 @@ def run_launcher(config, dry_run=False):
         "-drive",
         f"id=disk0,if=none,format=qcow2,file={os.path.expanduser(disk_path)}",
         "-display",
-        "cocoa,show-cursor=on,zoom-to-fit=on",
+        f"cocoa,show-cursor=on,zoom-to-fit=on,full-screen={fs_val}",
         "-device",
         f"virtio-gpu-pci,xres={DisplayManager.get_target_display()['width']},yres={DisplayManager.get_target_display()['height']}",
         "-device",
@@ -488,6 +517,7 @@ def run_launcher(config, dry_run=False):
         escaped_command = [sh_escape(a) for a in qemu_command]
         debug_print("Full QEMU command:", " ".join(qemu_command))
 
+        global CURRENT_QEMU_PROCESS
         if needs_root:
             if sys.platform == "darwin":
                 # macOS Native elevation
@@ -512,9 +542,11 @@ def run_launcher(config, dry_run=False):
             else:
                 # Linux Native elevation via pkexec
                 debug_print("Triggering Linux elevation via pkexec...")
-                proc = subprocess.Popen(["pkexec"] + qemu_command, env=qemu_env)
+                CURRENT_QEMU_PROCESS = subprocess.Popen(["pkexec"] + qemu_command, env=qemu_env)
+                proc = CURRENT_QEMU_PROCESS
         else:
-            proc = subprocess.Popen(qemu_command, env=qemu_env)
+            CURRENT_QEMU_PROCESS = subprocess.Popen(qemu_command, env=qemu_env)
+            proc = CURRENT_QEMU_PROCESS
 
         # Trigger Window Orchestration (Background)
         if sys.platform == "darwin":
@@ -685,8 +717,17 @@ def run_setup_ui(existing_config=None, parent_root=None):
             return
         save_config(values)
         SETUP_COMPLETE_FILE.touch(exist_ok=True)
-        root.destroy()
-        run_launcher(load_config())
+
+        # Close the dialog but DON'T kill the root if it's the main root
+        dialog.destroy()
+
+        # Offer to restart
+        if messagebox.askyesno("Settings Saved", "Restart VM now to apply settings?", parent=root):
+            # Reload and relaunch
+            config = load_config()
+            run_launcher(config)
+        else:
+            debug_print("Settings saved. Changes will apply on next restart.")
 
     # Buttons
     btn_frame = ttk.Frame(main_frame)
