@@ -55,5 +55,5 @@ $MAC_TEST_PYTHON -m venv "$SMOKE_VENV"
 "$SMOKE_VENV/bin/python" -m ruff check .
 "$SMOKE_VENV/bin/python" -m pytest -q
 "$SMOKE_VENV/bin/python" qemu_app.py --integrity-check
-./build.sh remote-smoke
+PYTHON="$SMOKE_VENV/bin/python" ./build.sh remote-smoke
 EOF

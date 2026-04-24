@@ -4,6 +4,7 @@
 APP_NAME="QEMU Launcher"
 APP_VERSION="${1:-1.0}"
 OUTPUT_APP="$APP_NAME.app"
+PYTHON_BIN="${PYTHON:-python3}"
 
 # --- Source Files (Must be in the current directory) ---
 PYTHON_APP="qemu_app.py"
@@ -23,7 +24,7 @@ rm -rf build dist "$OUTPUT_APP"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "-> Building standalone macOS application with PyInstaller..."
-    python3 build_pyinstaller.py
+    "$PYTHON_BIN" build_pyinstaller.py
 
     if [ -d "dist/$OUTPUT_APP" ]; then
         echo "-> PyInstaller build successful. Moving to root..."
@@ -52,7 +53,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     fi
 else
     echo "-> Building Linux directory artifact with PyInstaller..."
-    python3 -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
+    "$PYTHON_BIN" -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
 fi
 
 # 4. Cleanup

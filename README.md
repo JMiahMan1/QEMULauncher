@@ -37,6 +37,9 @@ python3.12 qemu_app.py --integrity-check
 ruff check .
 pytest -q
 ./build.sh ci-test
+
+# Use a specific interpreter for build tooling when needed
+PYTHON=python3.13 ./build.sh ci-test
 ```
 
 ## Remote macOS Smoke
@@ -53,6 +56,6 @@ cp .env.example .env
 
 The local `.env` file is ignored by git. The tracked `.env.example` file is only a template.
 
-That script fetches the current branch on the remote Mac, requires Python 3.12+, installs dependencies, runs lint/tests, performs the integrity check, and runs the build. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
+That script fetches the current branch on the remote Mac, requires Python 3.12+, creates an isolated virtualenv, installs dependencies, runs lint/tests, performs the integrity check, and runs the build using that same interpreter. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
 
-For recurring CI on real Apple hardware, use the self-hosted workflow in `.github/workflows/self-hosted-macos.yml`.
+The remote Mac flow is for manual verification outside GitHub Actions so platform-specific issues can be caught before pushing changes into the hosted CI pipeline.
