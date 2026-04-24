@@ -23,29 +23,35 @@ echo "-> Cleaning previous builds..."
 rm -rf build dist "$OUTPUT_APP"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "-> Building self-contained app with py2app..."
-    # Ensure dependencies are installed for the build process (macOS only)
-    pip3 install -q -r requirements.txt
-    python3 setup.py py2app --quiet
-
-    # 3. Robust move: Find whatever .app was created in dist/ and move/rename it
-    GENERATED_APP=$(find dist -maxdepth 1 -name "*.app" -print -quit)
-    if [ -n "$GENERATED_APP" ]; then
-        echo "-> Moving $GENERATED_APP to $OUTPUT_APP..."
-        mv "$GENERATED_APP" "./$OUTPUT_APP"
+    echo "-> Building standalone macOS application with PyInstaller..."
         
-        # 4. Ad-hoc Signing (Restored from original logic)
-        echo "-> Applying ad-hoc signature..."
-        codesign --force --deep --sign - "./$OUTPUT_APP"
+    # 1. Install PyInstaller if missing
+    pip3 install pyinstaller
 
-        # 5. Integrity Check: Verify internal structure
-        echo "-> Verifying internal bundle structure..."
-        if [ ! -d "./$OUTPUT_APP/Contents/Resources/lib" ]; then
-             echo "Warning: Bundle library structure looks suspicious (may not be standalone)."
-        fi
+    # 2. Run PyInstaller build
+    python3 build_pyinstaller.py
+        
+    # 3. Rename output to final name (PyInstaller outputs to dist/)
+    # PyInstaller --onefile creates a single binary in dist/
+    # We then wrap it back into a .app structure or use --windowed
+    # Our build_pyinstaller.py uses --windowed which creates dist/QEMU Launcher.app
+        
+    if [ -d "dist/$OUTPUT_APP" ]; then
+        echo "-> PyInstaller build successful."
     else
-        echo "Error: No .app bundle found in dist/ directory."
+        echo "Error: PyInstaller failed to create $OUTPUT_APP"
         exit 1
+    fi
+
+    # 4. Ad-hoc Signing
+    echo "-> Applying ad-hoc signature..."
+    codesign --force --deep --sign - "dist/$OUTPUT_APP"
+
+    # 5. Integrity Check: Verify internal structure
+    echo "-> Verifying internal bundle structure..."
+    if [ ! -f "dist/$OUTPUT_APP/Contents/MacOS/QEMU Launcher" ]; then
+         echo "Error: Main binary missing from bundle."
+         exit 1
     fi
 else
     echo "-> Skipping py2app bundling (Not on macOS). Creating mock bundle for test compatibility..."
