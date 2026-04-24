@@ -1,4 +1,3 @@
-import os
 
 filename = "QEMU-Launcher-Universal.dmg"
 volume_name = "QEMU Launcher"
