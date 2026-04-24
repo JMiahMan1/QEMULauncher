@@ -1,4 +1,3 @@
-import sys
 from PyInstaller.__main__ import run
 
 def build():
