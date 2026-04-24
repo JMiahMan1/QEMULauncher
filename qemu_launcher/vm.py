@@ -197,6 +197,67 @@ def resolve_sharing(profile: VMProfile, caps: QemuCapabilities) -> tuple[str, st
     )
 
 
+def profile_readiness(profile: VMProfile, caps: QemuCapabilities) -> tuple[list[str], list[str], list[str]]:
+    issues: list[str] = []
+    highlights: list[str] = []
+    notes: list[str] = []
+    has_launch_basics = True
+
+    qemu_path = Path(profile.qemu_executable).expanduser() if profile.qemu_executable else None
+    if not profile.qemu_executable:
+        issues.append("Choose a QEMU binary.")
+        has_launch_basics = False
+    elif not qemu_path or not qemu_path.exists():
+        issues.append(f"QEMU binary does not exist: {profile.qemu_executable}")
+        has_launch_basics = False
+    elif caps.version:
+        highlights.append(caps.version)
+
+    disk_path = Path(profile.expanded_disk_path()) if profile.disk_path else None
+    if not profile.disk_path:
+        issues.append("Choose a disk image.")
+        has_launch_basics = False
+    elif not disk_path or not disk_path.exists():
+        issues.append(f"Disk image does not exist yet: {profile.disk_path}")
+        has_launch_basics = False
+    else:
+        highlights.append(f"Disk image: {disk_path.name}")
+
+    if profile.firmware_path:
+        firmware_path = Path(profile.expanded_firmware_path())
+        if not firmware_path.exists():
+            issues.append(f"Firmware file does not exist: {profile.firmware_path}")
+
+    sharing_mode, mount_help = resolve_sharing(profile, caps)
+    if sharing_mode == "none":
+        notes.append("No shared folder configured yet.")
+    else:
+        shared_path = Path(profile.expanded_shared_dir_path())
+        if not shared_path.is_dir():
+            issues.append(f"Shared folder does not exist: {profile.shared_dir_path}")
+        else:
+            highlights.append(f"Shared folder: {shared_path}")
+            notes.append(f"Guest mount command: {mount_help}")
+        if sharing_mode == "virtiofs" and not caps.has_virtiofsd:
+            issues.append("virtiofs is selected but virtiofsd is not available on the host.")
+
+    if has_launch_basics and profile.enable_fullscreen:
+        highlights.append(f"Fullscreen target: {profile.target_display_name}")
+        if not should_qemu_handle_fullscreen(profile.target_display_name, True):
+            notes.append("Non-primary display fullscreen is applied after launch by the host window manager.")
+
+    if profile.display_backend not in {"auto", "none"} and not caps.supports_display(profile.display_backend):
+        issues.append(f"Display backend '{profile.display_backend}' is not available on this host.")
+    if has_launch_basics and profile.enable_audio and caps.audio_drivers:
+        highlights.append(f"Audio: {', '.join(sorted(caps.audio_drivers))}")
+    if profile.network_mode in {"bridge", "vmnet-bridged"} and not profile.bridge_name:
+        issues.append("Bridge / interface name is required for bridged networking.")
+    if has_launch_basics and profile.auto_resume:
+        highlights.append(f"Resume snapshot: {profile.resume_snapshot_name}")
+
+    return issues, highlights, notes
+
+
 def _usb_args(profile: VMProfile) -> list[str]:
     args: list[str] = []
     if profile.enable_usb or profile.enable_webcam or profile.usb_devices:

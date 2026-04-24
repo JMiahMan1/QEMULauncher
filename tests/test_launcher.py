@@ -19,7 +19,7 @@ from qemu_launcher.config import (
     save_settings,
 )
 from qemu_launcher.display import should_qemu_handle_fullscreen
-from qemu_launcher.vm import RuntimeArtifacts, VMController, build_command, resolve_sharing
+from qemu_launcher.vm import RuntimeArtifacts, VMController, build_command, profile_readiness, resolve_sharing
 
 
 class DummyPaths:
@@ -237,6 +237,36 @@ def test_resolve_sharing_mount_hint(tmp_path: Path):
     assert mode == "9p"
     assert "mount -t 9p" in mount_help
     assert "/mnt/host_share" in mount_help
+
+
+def test_profile_readiness_reports_missing_basics(tmp_path: Path):
+    profile = VMProfile()
+    issues, highlights, notes = profile_readiness(profile, fake_caps())
+    assert "Choose a QEMU binary." in issues
+    assert "Choose a disk image." in issues
+    assert any("No shared folder configured" in note for note in notes)
+    assert not highlights
+
+
+def test_profile_readiness_highlights_fullscreen_and_share(tmp_path: Path):
+    shared = tmp_path / "share"
+    shared.mkdir()
+    disk = tmp_path / "disk.qcow2"
+    disk.write_text("", encoding="utf-8")
+    qemu_bin = tmp_path / "qemu-system-x86_64"
+    qemu_bin.write_text("", encoding="utf-8")
+    profile = VMProfile(
+        qemu_executable=str(qemu_bin),
+        disk_path=str(disk),
+        shared_dir_path=str(shared),
+        enable_fullscreen=True,
+        target_display_name="Projector",
+    )
+    issues, highlights, notes = profile_readiness(profile, fake_caps())
+    assert not issues
+    assert any("Fullscreen target: Projector" == item for item in highlights)
+    assert any("Shared folder:" in item for item in highlights)
+    assert any("Non-primary display fullscreen" in note for note in notes)
 
 
 def test_probe_qemu_uses_real_binary():

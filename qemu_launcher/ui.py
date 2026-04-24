@@ -42,7 +42,7 @@ from .config import (
     save_settings,
 )
 from .display import PRIMARY_DISPLAY_NAME, available_displays
-from .vm import ConfigurationError, VMController, resolve_sharing, shell_join
+from .vm import ConfigurationError, VMController, profile_readiness, resolve_sharing, shell_join
 
 
 def detect_screens() -> list[str]:
@@ -54,6 +54,13 @@ def smart_profile_defaults() -> VMProfile:
     profile = build_default_profile(name="New VM")
     profile.target_display_name = PRIMARY_DISPLAY_NAME
     return profile
+
+
+def _rich_list(title: str, items: list[str], empty_text: str) -> str:
+    if not items:
+        return f"<b>{title}</b><br>{empty_text}"
+    rows = "".join(f"<li>{item}</li>" for item in items)
+    return f"<b>{title}</b><ul>{rows}</ul>"
 
 
 class MainWindow(QMainWindow):
@@ -147,6 +154,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         right_layout.addWidget(self.tabs, stretch=1)
+        self.tabs.addTab(self._build_overview_tab(), "Overview")
         self.tabs.addTab(self._build_general_tab(), "General")
         self.tabs.addTab(self._build_display_tab(), "Display")
         self.tabs.addTab(self._build_sharing_tab(), "Sharing")
@@ -160,9 +168,48 @@ class MainWindow(QMainWindow):
 
         self._rebuild_profile_list()
 
+    def _build_overview_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        intro = QLabel(
+            "Set up two things first for a natural VM experience: fullscreen on the right display and a shared folder the guest can mount."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        readiness_box = QGroupBox("Launch Readiness")
+        readiness_layout = QVBoxLayout(readiness_box)
+        self.readiness_summary_label = QLabel("")
+        self.readiness_summary_label.setWordWrap(True)
+        readiness_layout.addWidget(self.readiness_summary_label)
+        self.readiness_issues_label = QLabel("")
+        self.readiness_issues_label.setWordWrap(True)
+        self.readiness_issues_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        readiness_layout.addWidget(self.readiness_issues_label)
+        layout.addWidget(readiness_box)
+
+        experience_box = QGroupBox("Natural Feel")
+        experience_layout = QVBoxLayout(experience_box)
+        self.highlights_label = QLabel("")
+        self.highlights_label.setWordWrap(True)
+        self.highlights_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        experience_layout.addWidget(self.highlights_label)
+        self.next_steps_label = QLabel("")
+        self.next_steps_label.setWordWrap(True)
+        self.next_steps_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        experience_layout.addWidget(self.next_steps_label)
+        layout.addWidget(experience_box)
+        layout.addStretch(1)
+        return tab
+
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
+
+        intro = QLabel("Pick the VM binary and disk image first. Everything else builds on those two paths.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
 
         box = QGroupBox("VM Identity")
         form = QFormLayout(box)
@@ -198,7 +245,13 @@ class MainWindow(QMainWindow):
 
     def _build_display_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QFormLayout(tab)
+        root_layout = QVBoxLayout(tab)
+        intro = QLabel(
+            "Use fullscreen for the most natural feel. Primary-display fullscreen is direct; non-primary placement depends on the host window manager."
+        )
+        intro.setWordWrap(True)
+        root_layout.addWidget(intro)
+        layout = QFormLayout()
         self.display_combo = QComboBox()
         self.display_combo.addItems(detect_screens())
         self.display_combo.currentTextChanged.connect(self._refresh_preview)
@@ -214,11 +267,22 @@ class MainWindow(QMainWindow):
         layout.addRow("Fullscreen", self.fullscreen_check)
         layout.addRow("Display Backend", self.display_backend_combo)
         layout.addRow("Graphics", self.graphics_combo)
+        root_layout.addLayout(layout)
+        self.display_info_label = QLabel("")
+        self.display_info_label.setWordWrap(True)
+        self.display_info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root_layout.addWidget(self.display_info_label)
+        root_layout.addStretch(1)
         return tab
 
     def _build_sharing_tab(self) -> QWidget:
         tab = QWidget()
         root_layout = QVBoxLayout(tab)
+        intro = QLabel(
+            "Shared folders are one of the main flows. Pick a host folder here, then run the guest mount command shown below."
+        )
+        intro.setWordWrap(True)
+        root_layout.addWidget(intro)
         layout = QFormLayout()
         self.shared_dir_edit = self._browse_line_edit(directory=True)
         self.shared_dir_edit.textChanged.connect(self._refresh_preview)
@@ -449,9 +513,28 @@ class MainWindow(QMainWindow):
             caps = controller.capabilities
             running = "running" if controller.is_running() else "stopped"
             sharing_mode, mount_help = resolve_sharing(profile, caps)
+            issues, highlights, notes = profile_readiness(profile, caps)
             self.preview_edit.setPlainText(preview)
             self.sharing_info_label.setText(
                 f"Sharing backend: {sharing_mode}\nGuest mount: {mount_help}"
+            )
+            display_note = (
+                "Primary display launch uses QEMU fullscreen directly."
+                if profile.target_display_name == PRIMARY_DISPLAY_NAME or profile.target_display_name.endswith(" (Primary)")
+                else f"Target display: {profile.target_display_name}. Host-side placement is used after launch."
+            )
+            self.display_info_label.setText(display_note)
+            self.readiness_summary_label.setText(
+                "Ready to launch." if not issues else f"Needs attention before launch: {len(issues)} item(s)."
+            )
+            self.readiness_issues_label.setText(
+                _rich_list("Fix Before Launch", issues, "The profile has the required basics.")
+            )
+            self.highlights_label.setText(
+                _rich_list("Configured Experience", highlights, "Choose fullscreen, sharing, and resume options to shape the VM experience.")
+            )
+            self.next_steps_label.setText(
+                _rich_list("Notes", notes, "Save the profile, then launch when the profile is ready.")
             )
             self.status_label.setText(
                 f"{caps.version or 'QEMU not found'} | state={running} | displays={','.join(sorted(caps.displays)) or '-'} | "
@@ -462,6 +545,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.preview_edit.setPlainText(str(exc))
             self.sharing_info_label.setText(str(exc))
+            self.display_info_label.setText(str(exc))
+            self.readiness_summary_label.setText("Needs attention before launch.")
+            self.readiness_issues_label.setText(_rich_list("Fix Before Launch", [str(exc)], ""))
+            self.highlights_label.setText(_rich_list("Configured Experience", [], "Preview becomes richer once the required paths are set."))
+            self.next_steps_label.setText(_rich_list("Notes", [], "Start by picking a QEMU binary and disk image."))
             self.status_label.setText(str(exc))
 
     def _launch_profile(self) -> None:
