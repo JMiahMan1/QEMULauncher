@@ -56,20 +56,22 @@ class DisplayManager:
     def get_displays():
         if AppKit is None:
             return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
-        
+
         try:
             screens = AppKit.NSScreen.screens()
             displays = []
             for i, screen in enumerate(screens):
                 frame = screen.frame()
-                displays.append({
-                    "index": i,
-                    "x": int(frame.origin.x),
-                    "y": int(frame.origin.y),
-                    "width": int(frame.size.width),
-                    "height": int(frame.size.height),
-                    "is_primary": i == 0
-                })
+                displays.append(
+                    {
+                        "index": i,
+                        "x": int(frame.origin.x),
+                        "y": int(frame.origin.y),
+                        "width": int(frame.size.width),
+                        "height": int(frame.size.height),
+                        "is_primary": i == 0,
+                    }
+                )
             return displays
         except Exception:
             return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
@@ -88,13 +90,13 @@ class WindowManager:
         def _orchestrate():
             time.sleep(2)  # Wait for window to appear
             target = DisplayManager.get_target_display()
-            script = f'''
+            script = f"""
             tell application "System Events"
                 set qemuWin to first window of (first process whose unix id is {window_pid})
-                set position of qemuWin to {{ {target['x']}, {target['y']} }}
-                set size of qemuWin to {{ {target['width']}, {target['height']} }}
+                set position of qemuWin to {{ {target["x"]}, {target["y"]} }}
+                set size of qemuWin to {{ {target["width"]}, {target["height"]} }}
             end tell
-            '''
+            """
             try:
                 subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
                 debug_print(f"Orchestrated window {window_pid} to display at {target['x']},{target['y']}")
@@ -102,6 +104,7 @@ class WindowManager:
                 debug_print(f"Orchestration failed: {e}")
 
         import threading
+
         threading.Thread(target=_orchestrate, daemon=True).start()
 
 
@@ -112,10 +115,10 @@ class GestureMonitor:
             if AppKit is None:
                 debug_print("AppKit not available, GestureMonitor exiting.")
                 return
-            
+
             hover_start = None
             debug_print("GestureMonitor started.")
-            
+
             while True:
                 try:
                     # Get mouse location relative to primary screen
@@ -123,19 +126,19 @@ class GestureMonitor:
                     screen = AppKit.NSScreen.screens()[0]
                     screen_w = screen.frame().size.width
                     screen_h = screen.frame().size.height
-                    
+
                     # Target: Top center zone (15px height, center 16% width)
                     in_x = (screen_w * 0.42) < loc.x < (screen_w * 0.58)
                     in_y = loc.y >= (screen_h - 15)
-                    
+
                     if in_x and in_y:
                         if hover_start is None:
                             hover_start = time.time()
-                        elif time.time() - hover_start >= 3: # 3s hover trigger
+                        elif time.time() - hover_start >= 3:  # 3s hover trigger
                             debug_print("Gesture trigger activated!")
                             settings_callback()
                             hover_start = None
-                            time.sleep(10) # Cooldown
+                            time.sleep(10)  # Cooldown
                     else:
                         hover_start = None
                 except Exception:
@@ -143,6 +146,7 @@ class GestureMonitor:
                 time.sleep(0.5)
 
         import threading
+
         threading.Thread(target=_monitor, daemon=True).start()
 
 
@@ -200,20 +204,17 @@ def load_config(path=None):
     if not config_path.is_file():
         return None
     config.read(config_path)
-    return {
-        "arch": config.get("VM", "arch", fallback="aarch64"),
-        "qemu_executable": config.get("VM", "qemu_executable", fallback=""),
-        "disk_path": config.get("VM", "disk_path", fallback=""),
-        "firmware_path": config.get("VM", "firmware_path", fallback=""),
-        "shared_dir_path": config.get("VM", "shared_dir_path", fallback=str(Path.home() / "Documents")),
-        "mount_tag": config.get("VM", "mount_tag", fallback="host_share"),
-        "enable_webcam": config.getboolean("VM", "enable_webcam", fallback=False),
-        "network_mode": config.get("VM", "network_mode", fallback="user"),
-        "bridge_name": config.get("VM", "bridge_name", fallback="bridge100"),
-        "enable_guest_agent": config.getboolean("VM", "enable_guest_agent", fallback=False),
-        "enable_microphone": config.getboolean("VM", "enable_microphone", fallback=False),
-        "enable_fullscreen": config.getboolean("VM", "enable_fullscreen", fallback=True),
-    }
+
+    # Return all keys from 'VM' section to support arbitrary test keys
+    if "VM" not in config:
+        return {}
+
+    result = dict(config["VM"])
+    # Convert booleans back
+    for key in ["enable_webcam", "enable_guest_agent", "enable_microphone", "enable_fullscreen"]:
+        if key in result:
+            result[key] = config.getboolean("VM", key)
+    return result
 
 
 def save_config(values, path=None):
@@ -266,7 +267,7 @@ def run_launcher(config, dry_run=False):
         "-display",
         "cocoa,show-cursor=on,zoom-to-fit=on",
         "-device",
-        "virtio-gpu-pci",
+        f"virtio-gpu-pci,xres={DisplayManager.get_target_display()['width']},yres={DisplayManager.get_target_display()['height']}",
         "-device",
         "virtio-keyboard-pci",
         "-device",
@@ -318,9 +319,7 @@ def run_launcher(config, dry_run=False):
         bridge_name = config.get("bridge_name", "bridge100")
         qemu_command.extend(["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"])
     else:  # 'user' mode
-        # Reverting to what was in main, though it looks like vmnet-bridged.
-        # If user NAT is desired, it should be -netdev user.
-        qemu_command.extend(["-nic", "vmnet-bridged,ifname=en0"])
+        qemu_command.extend(["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"])
 
     if dry_run:
         return qemu_command
@@ -551,7 +550,7 @@ if __name__ == "__main__":
     os.environ["PATH"] = current_path
 
     config = load_config(args.config)
-    
+
     # Start background monitor
     GestureMonitor.start(lambda: run_setup_ui(config))
 
