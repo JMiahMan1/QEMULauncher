@@ -88,25 +88,58 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-linux:
+  build-linux-x86:
     needs: test
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          dnf install -y python3-devel gcc ruby-devel rubygems rpm-build git tk-devel tcl-devel
+          gem install --no-document fpm
+          pip3 install pyinstaller ruff
+          if [ -f requirements.txt ]; then
+            grep -vE "pyobjc|py2app" requirements.txt > requirements_linux.txt
+            pip3 install -r requirements_linux.txt || true
+          fi
+      - name: Build Binary and RPM
+        run: |
+          pyinstaller --onefile --name "qemu-launcher-linux" qemu_app.py
+          VERSION="1.0"
+          fpm -s dir -t rpm \
+            -n "qemu-launcher" \
+            -v "${VERSION}" \
+            --iteration "${GITHUB_SHA:0:7}" \
+            --description "QEMU Launcher for macOS and Linux VMs" \
+            --maintainer "Jeremiah Summers" \
+            --architecture x86_64 \
+            --depends qemu \
+            --depends python3 \
+            dist/qemu-launcher-linux=/usr/bin/qemu-launcher
+      - name: Release Artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix-fullscreen-macos'
+        with:
+          files: "*.rpm"
+          tag_name: "latest-build"
+          name: "Latest Build (${{ github.sha }})"
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux-arm64:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install PyInstaller (Host)
-        run: pip install pyinstaller ruff
       - name: Build Binary and RPM
         uses: uraimo/run-on-arch-action@v2
         with:
-          arch: ${{ matrix.arch }}
+          arch: aarch64
           distro: fedora_latest
           run: |
             dnf install -y python3-devel gcc ruby-devel rubygems rpm-build git tk-devel tcl-devel
@@ -124,7 +157,7 @@ jobs:
               --iteration "${GITHUB_SHA:0:7}" \
               --description "QEMU Launcher for macOS and Linux VMs" \
               --maintainer "Jeremiah Summers" \
-              --architecture ${{ matrix.arch }} \
+              --architecture aarch64 \
               --depends qemu \
               --depends python3 \
               dist/qemu-launcher-linux=/usr/bin/qemu-launcher
@@ -132,8 +165,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix-fullscreen-macos'
         with:
-          files: |
-            *.rpm
+          files: "*.rpm"
           tag_name: "latest-build"
           name: "Latest Build (${{ github.sha }})"
           draft: false
