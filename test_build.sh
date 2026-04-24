@@ -142,38 +142,28 @@ if [ $FAIL_COUNT -eq 0 ]; then
         echo "[Runtime Smoke Test]"
         BINARY_PATH="./$OUTPUT_APP/Contents/MacOS/QEMU Launcher"
         if [[ -f "$BINARY_PATH" ]]; then
-            echo "  - Executing packaged binary with --dry-run..."
-        # Use absolute path for config because py2app binaries might change CWD
-        SMOKE_CONFIG_PATH="$(pwd)/smoke_test.ini"
-        {
-            echo "[VM]"
-            echo "arch=aarch64"
-            echo "qemu_executable=/usr/local/bin/qemu-system-aarch64"
-            echo "disk_path=/tmp/test_disk.qcow2"
-            echo "firmware_path=/tmp/test_firmware.fd"
-        } > "$SMOKE_CONFIG_PATH"
-        
-        echo "  - Using config path: $SMOKE_CONFIG_PATH"
-        
-        # Capture output so we can see what went wrong on failure
-        SMOKE_OUTPUT=$( "$BINARY_PATH" --config "$SMOKE_CONFIG_PATH" --dry-run 2>&1 )
-        SMOKE_EXIT=$?
-        
-        echo "  - Running Integrity Check..."
-        SMOKE_OUTPUT=$( "$BINARY_PATH" --integrity-check 2>&1 )
-        SMOKE_EXIT=$?
-        
-        if [ $SMOKE_EXIT -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q "\[INTEGRITY\] Success"; then
-            echo "  - Binary integrity verified (encodings OK)       [PASS]"
-        else
-            echo "  - Binary integrity check FAILED                  [FAIL]"
-            echo "--- START ERROR OUTPUT ---"
-            echo "${SMOKE_OUTPUT:-[No output captured]}"
-            echo "--- END ERROR OUTPUT ---"
-            rm -f "$SMOKE_CONFIG_PATH"
-            exit 1
-        fi
-        rm -f "$SMOKE_CONFIG_PATH"
+            # 1. Structural Verification
+            echo "  - Verifying internal bundle structure..."
+            if [ ! -d "./$OUTPUT_APP/Contents/Resources/lib" ]; then
+                echo "  - Bundle library directory MISSING               [FAIL]"
+                exit 1
+            fi
+
+            # 2. Hard Integrity Check (Isolated Environment)
+            echo "  - Running Integrity Check (Isolated)..."
+            # Clear Python env vars to ensure we only use the bundle's internal libraries
+            SMOKE_OUTPUT=$( env -u PYTHONPATH -u PYTHONHOME "$BINARY_PATH" --integrity-check 2>&1 )
+            SMOKE_EXIT=$?
+            
+            if [ $SMOKE_EXIT -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q "\[INTEGRITY\] Success"; then
+                echo "  - Binary integrity verified (Standalone OK)      [PASS]"
+            else
+                echo "  - Binary integrity check FAILED                  [FAIL]"
+                echo "--- START ERROR OUTPUT ---"
+                echo "${SMOKE_OUTPUT:-[No output captured]}"
+                echo "--- END ERROR OUTPUT ---"
+                exit 1
+            fi
         else
             echo "  - Packaged binary not found at $BINARY_PATH [FAIL]"
             exit 1
