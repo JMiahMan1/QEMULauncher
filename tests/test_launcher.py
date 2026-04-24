@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from qemu_launcher.config import (
     save_profile,
     save_settings,
 )
-from qemu_launcher.vm import RuntimeArtifacts, VMController, build_command
+from qemu_launcher.vm import RuntimeArtifacts, VMController, build_command, resolve_sharing
 
 
 class DummyPaths:
@@ -103,6 +104,8 @@ def test_legacy_ini_migration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_linux_command_uses_linux_backends(tmp_path: Path):
+    shared = tmp_path / "share"
+    shared.mkdir()
     profile = VMProfile(
         name="Linux VM",
         architecture="x86_64",
@@ -110,7 +113,7 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
         disk_path="/tmp/disk.qcow2",
         firmware_path="/tmp/OVMF.fd",
         network_mode="auto",
-        shared_dir_path="/tmp/share",
+        shared_dir_path=str(shared),
         sharing_backend="auto",
     )
     artifacts = RuntimeArtifacts(
@@ -121,6 +124,7 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
     command = build_command(profile, fake_caps(), artifacts, host_platform="linux")
     cmd = " ".join(command)
     assert "-machine q35,accel=kvm:tcg" in cmd
+    assert "-full-screen" in cmd
     assert "gtk,gl=on" in cmd
     assert "pipewire" in cmd
     assert "passt,id=net0" in cmd
@@ -156,7 +160,8 @@ def test_macos_command_uses_macos_backends(tmp_path: Path):
     command = build_command(profile, caps, artifacts, host_platform="darwin")
     cmd = " ".join(command)
     assert "-machine virt,accel=hvf:tcg" in cmd
-    assert "cocoa,show-cursor=on,zoom-to-fit=on" in cmd
+    assert "-full-screen" in cmd
+    assert "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on,full-grab=on" in cmd
     assert "coreaudio,id=snd0" in cmd
     assert "vmnet-shared,id=net0" in cmd
     assert "gtk" not in cmd
@@ -165,10 +170,12 @@ def test_macos_command_uses_macos_backends(tmp_path: Path):
 
 
 def test_virtiofs_requires_socket(tmp_path: Path):
+    shared = tmp_path / "share"
+    shared.mkdir()
     profile = VMProfile(
         qemu_executable="/usr/bin/qemu-system-x86_64",
         disk_path="/tmp/disk.qcow2",
-        shared_dir_path="/tmp/share",
+        shared_dir_path=str(shared),
         sharing_backend="virtiofs",
     )
     artifacts = RuntimeArtifacts(
@@ -178,6 +185,38 @@ def test_virtiofs_requires_socket(tmp_path: Path):
     )
     with pytest.raises(Exception):
         build_command(profile, fake_caps(has_virtiofsd=True), artifacts, host_platform="linux")
+
+
+def test_shared_folder_must_exist(tmp_path: Path):
+    profile = VMProfile(
+        qemu_executable="/usr/bin/qemu-system-x86_64",
+        disk_path="/tmp/disk.qcow2",
+        shared_dir_path=str(tmp_path / "missing-share"),
+        sharing_backend="9p",
+    )
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+    )
+    with pytest.raises(Exception):
+        build_command(profile, fake_caps(), artifacts, host_platform="linux")
+
+
+def test_resolve_sharing_mount_hint(tmp_path: Path):
+    shared = tmp_path / "share"
+    shared.mkdir()
+    profile = VMProfile(
+        qemu_executable="/usr/bin/qemu-system-x86_64",
+        disk_path="/tmp/disk.qcow2",
+        shared_dir_path=str(shared),
+        sharing_backend="9p",
+        mount_tag="host_share",
+    )
+    mode, mount_help = resolve_sharing(profile, fake_caps())
+    assert mode == "9p"
+    assert "mount -t 9p" in mount_help
+    assert "/mnt/host_share" in mount_help
 
 
 def test_probe_qemu_uses_real_binary():
@@ -242,3 +281,14 @@ def test_vm_controller_preview_paths(tmp_path: Path):
     assert "qmp.sock" in joined
     assert "qemu.pid" in joined
     assert "virtio-net-pci" in joined
+
+
+def test_vm_controller_detects_running_pid(tmp_path: Path):
+    profile = VMProfile(
+        profile_id="vm-test",
+        qemu_executable="/usr/bin/qemu-system-x86_64",
+        disk_path="/tmp/disk.qcow2",
+    )
+    controller = VMController(DummyPaths(tmp_path), profile)
+    controller.artifacts.pidfile.write_text(str(os.getpid()), encoding="utf-8")
+    assert controller.is_running() is True

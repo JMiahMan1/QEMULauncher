@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
+import signal
 import socket
 import subprocess
 import time
@@ -60,15 +62,27 @@ def _cpu_option(profile: VMProfile, caps: QemuCapabilities, host_platform: str) 
 
 def _display_backend(profile: VMProfile, caps: QemuCapabilities, host_platform: str) -> str:
     if profile.display_backend != "auto":
-        return profile.display_backend
+        return _display_backend_options(profile.display_backend, host_platform)
     if host_platform == "darwin" and caps.supports_display("cocoa"):
-        return "cocoa,show-cursor=on,zoom-to-fit=on"
+        return _display_backend_options("cocoa", host_platform)
     if host_platform.startswith("linux"):
         if caps.supports_display("gtk"):
-            return "gtk,gl=on,show-tabs=off,show-menubar=off"
+            return _display_backend_options("gtk", host_platform)
         if caps.supports_display("sdl"):
-            return "sdl,gl=on"
+            return _display_backend_options("sdl", host_platform)
     return "none"
+
+
+def _display_backend_options(name: str, host_platform: str) -> str:
+    if name == "cocoa":
+        return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on,full-grab=on"
+    if name == "gtk":
+        return "gtk,gl=on,show-tabs=off,show-menubar=off,zoom-to-fit=on"
+    if name == "sdl":
+        return "sdl,gl=on,show-cursor=on"
+    if name == "none":
+        return "none"
+    return name
 
 
 def _graphics_device(profile: VMProfile, backend: str) -> list[str]:
@@ -143,6 +157,10 @@ def _sharing_args(profile: VMProfile, caps: QemuCapabilities, artifacts: Runtime
     shared_path = profile.expanded_shared_dir_path()
     if mode == "none":
         return []
+    if not shared_path:
+        raise ConfigurationError("A shared folder path is required when sharing is enabled.")
+    if not Path(shared_path).is_dir():
+        raise ConfigurationError(f"Shared folder does not exist: {shared_path}")
     if mode == "virtiofs":
         if not artifacts.virtiofs_socket:
             raise ConfigurationError("virtiofs backend selected but no virtiofs socket is available.")
@@ -158,6 +176,23 @@ def _sharing_args(profile: VMProfile, caps: QemuCapabilities, artifacts: Runtime
         "-device",
         f"virtio-9p-pci,fsdev=fsdev0,mount_tag={profile.mount_tag}",
     ]
+
+
+def resolve_sharing(profile: VMProfile, caps: QemuCapabilities) -> tuple[str, str]:
+    mode = _sharing_backend(profile, caps)
+    if mode == "none":
+        return mode, "No shared folder configured."
+    mount_dir = f"/mnt/{profile.mount_tag}"
+    if mode == "virtiofs":
+        return (
+            mode,
+            f"sudo mkdir -p {mount_dir} && sudo mount -t virtiofs {profile.mount_tag} {mount_dir}",
+        )
+    return (
+        mode,
+        f"sudo mkdir -p {mount_dir} && sudo mount -t 9p -o trans=virtio,version=9p2000.L "
+        f"{profile.mount_tag} {mount_dir}",
+    )
 
 
 def _usb_args(profile: VMProfile) -> list[str]:
@@ -208,6 +243,9 @@ def build_command(
         "-qmp",
         f"unix:{artifacts.qmp_socket},server=on,wait=off",
     ]
+
+    if profile.enable_fullscreen and display != "none":
+        command.append("-full-screen")
 
     if firmware:
         command.extend(["-drive", f"if=pflash,format=raw,readonly=on,file={firmware}"])
@@ -314,7 +352,7 @@ class VMController:
         if self.artifacts.virtiofs_socket.exists():
             self.artifacts.virtiofs_socket.unlink()
         command = [
-            "virtiofsd",
+            shutil.which("virtiofsd") or "virtiofsd",
             "--socket-path",
             str(self.artifacts.virtiofs_socket),
             "--shared-dir",
@@ -328,9 +366,48 @@ class VMController:
             time.sleep(0.1)
         raise TimeoutError("virtiofsd did not create its socket.")
 
-    def launch(self) -> subprocess.Popen[str]:
+    def _read_pid(self) -> int | None:
+        if not self.artifacts.pidfile.exists():
+            return None
+        try:
+            return int(self.artifacts.pidfile.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return None
+
+    def _pid_is_running(self, pid: int | None) -> bool:
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def is_running(self) -> bool:
+        if self.process and self.process.poll() is None:
+            return True
+        return self._pid_is_running(self._read_pid())
+
+    def save_state(self, snapshot_name: str | None = None) -> None:
+        snapshot = snapshot_name or self.profile.resume_snapshot_name
+        if not snapshot:
+            raise ConfigurationError("A snapshot name is required to save state.")
+        client = self.connect_qmp()
+        try:
+            client.execute(
+                "human-monitor-command",
+                {"command-line": f"savevm {snapshot}"},
+            )
+        finally:
+            client.close()
+
+    def launch(self) -> subprocess.Popen[str] | None:
         if self.process and self.process.poll() is None:
             return self.process
+        if self.is_running():
+            return None
         self.artifacts.log_file.parent.mkdir(parents=True, exist_ok=True)
         if self.artifacts.qmp_socket.exists():
             self.artifacts.qmp_socket.unlink()
@@ -354,6 +431,8 @@ class VMController:
             client.close()
 
     def stop(self, save_state: bool | None = None) -> None:
+        if not self.is_running() and not self.artifacts.qmp_socket.exists():
+            return
         save_state = self.profile.auto_resume if save_state is None else save_state
         client = self.connect_qmp()
         try:
@@ -370,6 +449,12 @@ class VMController:
 
     def wait(self, timeout: float = 10.0) -> int | None:
         if not self.process:
+            deadline = time.time() + timeout
+            pid = self._read_pid()
+            while pid and time.time() < deadline:
+                if not self._pid_is_running(pid):
+                    return 0
+                time.sleep(0.1)
             return None
         try:
             return self.process.wait(timeout=timeout)
@@ -380,6 +465,11 @@ class VMController:
         if self.process and self.process.poll() is None:
             self.process.terminate()
             self.wait()
+        else:
+            pid = self._read_pid()
+            if pid and self._pid_is_running(pid):
+                os.kill(pid, signal.SIGTERM)
+                self.wait()
         self._stop_virtiofsd()
 
     def _stop_virtiofsd(self) -> None:

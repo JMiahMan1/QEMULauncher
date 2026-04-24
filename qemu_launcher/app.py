@@ -5,7 +5,7 @@ import sys
 
 from .config import AppPaths, ensure_default_profile
 from .ui import run_ui
-from .vm import VMController, shell_join
+from .vm import ConfigurationError, VMController, shell_join
 
 
 def _find_profile(profile_id: str | None):
@@ -40,11 +40,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run or args.launch:
         paths, profile = _find_profile(args.profile)
         controller = VMController(paths, profile)
-        if args.dry_run:
-            print(shell_join(controller.preview_command()))
+        try:
+            if args.dry_run:
+                print(shell_join(controller.preview_command()))
+                return 0
+            controller.launch()
             return 0
-        controller.launch()
-        return 0
+        except (ConfigurationError, OSError, RuntimeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
 
     return run_ui()
 

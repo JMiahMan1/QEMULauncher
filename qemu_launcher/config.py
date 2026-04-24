@@ -4,12 +4,15 @@ import configparser
 import os
 import secrets
 import string
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from platformdirs import PlatformDirs
 from pydantic import BaseModel, Field
+
+from .capabilities import find_default_qemu
 
 APP_NAME = "QEMU Launcher"
 APP_AUTHOR = "QEMULauncher"
@@ -69,6 +72,29 @@ class AppPaths:
 def _random_profile_id() -> str:
     alphabet = string.ascii_lowercase + string.digits
     return "vm-" + "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+def default_architecture() -> str:
+    return "aarch64" if sys.platform == "darwin" and os.uname().machine == "arm64" else "x86_64"
+
+
+def build_default_profile(name: str = "Default VM") -> "VMProfile":
+    architecture = default_architecture()
+    return VMProfile(
+        name=name,
+        architecture=architecture,
+        qemu_executable=find_default_qemu(architecture),
+    )
+
+
+def apply_profile_defaults(profile: "VMProfile") -> "VMProfile":
+    if not profile.architecture:
+        profile.architecture = default_architecture()
+    if not profile.qemu_executable:
+        profile.qemu_executable = find_default_qemu(profile.architecture)
+    if not profile.target_display_name:
+        profile.target_display_name = "Primary Display"
+    return profile
 
 
 class VMProfile(BaseModel):
@@ -178,7 +204,7 @@ def load_settings(path: Path) -> AppSettings:
 
 def load_profile(path: Path) -> VMProfile:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return VMProfile.model_validate(data)
+    return apply_profile_defaults(VMProfile.model_validate(data))
 
 
 def load_profiles(paths: AppPaths) -> list[VMProfile]:
@@ -199,11 +225,11 @@ def save_settings(paths: AppPaths, settings: AppSettings) -> None:
 
 
 def _legacy_to_profile(data: dict[str, Any]) -> VMProfile:
-    arch = data.get("arch") or ("aarch64" if os.uname().machine == "arm64" else "x86_64")
+    arch = data.get("arch") or default_architecture()
     return VMProfile(
         name="Migrated VM",
         architecture=arch,
-        qemu_executable=data.get("qemu_executable", ""),
+        qemu_executable=data.get("qemu_executable", "") or find_default_qemu(arch),
         disk_path=data.get("disk_path", ""),
         firmware_path=data.get("firmware_path", ""),
         shared_dir_path=data.get("shared_dir_path", ""),
@@ -249,7 +275,7 @@ def ensure_default_profile(paths: AppPaths) -> tuple[AppSettings, list[VMProfile
     if profiles:
         return settings, profiles
 
-    profile = VMProfile()
+    profile = build_default_profile()
     save_profile(paths, profile)
     settings.last_used_profile = profile.profile_id
     settings.recent_profiles = [profile.profile_id]

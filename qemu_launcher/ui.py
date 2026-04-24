@@ -31,8 +31,17 @@ from PySide6.QtWidgets import (
 )
 
 from .capabilities import find_default_qemu
-from .config import APP_AUTHOR, APP_NAME, AppPaths, VMProfile, ensure_default_profile, save_profile, save_settings
-from .vm import ConfigurationError, VMController, shell_join
+from .config import (
+    APP_AUTHOR,
+    APP_NAME,
+    AppPaths,
+    VMProfile,
+    build_default_profile,
+    ensure_default_profile,
+    save_profile,
+    save_settings,
+)
+from .vm import ConfigurationError, VMController, resolve_sharing, shell_join
 
 
 def detect_screens() -> list[str]:
@@ -49,13 +58,9 @@ def detect_screens() -> list[str]:
 
 
 def smart_profile_defaults() -> VMProfile:
-    architecture = "aarch64" if Path("/usr/bin/qemu-system-aarch64").exists() and sys.platform == "darwin" else "x86_64"
-    return VMProfile(
-        name="New VM",
-        architecture=architecture,
-        qemu_executable=find_default_qemu(architecture),
-        target_display_name="Primary Display",
-    )
+    profile = build_default_profile(name="New VM")
+    profile.target_display_name = "Primary Display"
+    return profile
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +78,12 @@ class MainWindow(QMainWindow):
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        controller = VMController(self.paths, self._current_profile())
+        if controller.is_running():
+            result = self._confirm_close_running_vm(controller)
+            if result == QMessageBox.Cancel:
+                event.ignore()
+                return
         self.ui_settings.setValue("geometry", self.saveGeometry())
         self.ui_settings.setValue("windowState", self.saveState())
         super().closeEvent(event)
@@ -106,9 +117,21 @@ class MainWindow(QMainWindow):
         preview_action.triggered.connect(self._refresh_preview)
         toolbar.addAction(preview_action)
 
+        status_action = QAction("VM Status", self)
+        status_action.triggered.connect(self._show_vm_status)
+        toolbar.addAction(status_action)
+
+        save_state_action = QAction("Save State", self)
+        save_state_action.triggered.connect(self._save_vm_state)
+        toolbar.addAction(save_state_action)
+
         launch_action = QAction("Save && Launch", self)
         launch_action.triggered.connect(self._launch_profile)
         toolbar.addAction(launch_action)
+
+        stop_action = QAction("Save && Stop", self)
+        stop_action.triggered.connect(self._stop_profile)
+        toolbar.addAction(stop_action)
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -202,7 +225,8 @@ class MainWindow(QMainWindow):
 
     def _build_sharing_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QFormLayout(tab)
+        root_layout = QVBoxLayout(tab)
+        layout = QFormLayout()
         self.shared_dir_edit = self._browse_line_edit(directory=True)
         self.shared_dir_edit.textChanged.connect(self._refresh_preview)
         self.sharing_combo = QComboBox()
@@ -213,6 +237,12 @@ class MainWindow(QMainWindow):
         layout.addRow("Shared Folder", self.shared_dir_edit.parentWidget())
         layout.addRow("Backend", self.sharing_combo)
         layout.addRow("Mount Tag", self.mount_tag_edit)
+        root_layout.addLayout(layout)
+        self.sharing_info_label = QLabel("")
+        self.sharing_info_label.setWordWrap(True)
+        self.sharing_info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root_layout.addWidget(self.sharing_info_label)
+        root_layout.addStretch(1)
         return tab
 
     def _build_audio_tab(self) -> QWidget:
@@ -327,6 +357,8 @@ class MainWindow(QMainWindow):
         self.cpu_spin.setValue(profile.cpu_cores)
         self.display_combo.clear()
         self.display_combo.addItems(detect_screens())
+        if profile.target_display_name and self.display_combo.findText(profile.target_display_name) == -1:
+            self.display_combo.addItem(profile.target_display_name)
         self.display_combo.setCurrentText(profile.target_display_name)
         self.fullscreen_check.setChecked(profile.enable_fullscreen)
         self.display_backend_combo.setCurrentText(profile.display_backend)
@@ -422,14 +454,21 @@ class MainWindow(QMainWindow):
             controller = VMController(self.paths, profile)
             preview = shell_join(controller.preview_command())
             caps = controller.capabilities
+            running = "running" if controller.is_running() else "stopped"
+            sharing_mode, mount_help = resolve_sharing(profile, caps)
             self.preview_edit.setPlainText(preview)
+            self.sharing_info_label.setText(
+                f"Sharing backend: {sharing_mode}\nGuest mount: {mount_help}"
+            )
             self.status_label.setText(
-                f"{caps.version or 'QEMU not found'} | displays={','.join(sorted(caps.displays)) or '-'} | "
+                f"{caps.version or 'QEMU not found'} | state={running} | displays={','.join(sorted(caps.displays)) or '-'} | "
                 f"audio={','.join(sorted(caps.audio_drivers)) or '-'} | "
-                f"net={','.join(sorted(caps.netdev_backends)) or '-'}"
+                f"net={','.join(sorted(caps.netdev_backends)) or '-'} | "
+                f"share={sharing_mode}"
             )
         except Exception as exc:
             self.preview_edit.setPlainText(str(exc))
+            self.sharing_info_label.setText(str(exc))
             self.status_label.setText(str(exc))
 
     def _launch_profile(self) -> None:
@@ -438,10 +477,79 @@ class MainWindow(QMainWindow):
         profile = self._current_profile()
         controller = VMController(self.paths, profile)
         try:
-            controller.launch()
-            self.status_label.setText(f"Launched {profile.name}. QMP: {controller.artifacts.qmp_socket}")
+            launched = controller.launch()
+            if launched is None and controller.is_running():
+                self.status_label.setText(
+                    f"{profile.name} is already running. QMP: {controller.artifacts.qmp_socket}"
+                )
+            else:
+                self.status_label.setText(f"Launched {profile.name}. QMP: {controller.artifacts.qmp_socket}")
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
+
+    def _show_vm_status(self) -> None:
+        controller = VMController(self.paths, self._current_profile())
+        try:
+            status = controller.status()
+            self.status_label.setText(f"VM status: {status.get('status', status)}")
+        except Exception as exc:
+            QMessageBox.information(self, "VM Status", f"Unable to query VM status: {exc}")
+
+    def _save_vm_state(self) -> None:
+        if not self._save_current_profile():
+            return
+        profile = self._current_profile()
+        controller = VMController(self.paths, profile)
+        try:
+            controller.save_state()
+            self.status_label.setText(
+                f"Saved snapshot '{profile.resume_snapshot_name}' for {profile.name}"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Save State Failed", str(exc))
+
+    def _stop_profile(self) -> None:
+        if not self._save_current_profile():
+            return
+        profile = self._current_profile()
+        controller = VMController(self.paths, profile)
+        try:
+            controller.stop(save_state=True)
+            self.status_label.setText(
+                f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Stop Failed", str(exc))
+
+    def _confirm_close_running_vm(self, controller: VMController) -> int:
+        profile = controller.profile
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("VM Still Running")
+        box.setText(f"{profile.name} is still running.")
+        box.setInformativeText(
+            "Save state and stop the VM before closing the launcher, leave it running, or cancel."
+        )
+        save_button = box.addButton("Save && Stop", QMessageBox.AcceptRole)
+        leave_button = box.addButton("Leave Running", QMessageBox.DestructiveRole)
+        cancel_button = box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == save_button:
+            try:
+                controller.stop(save_state=True)
+                self.status_label.setText(
+                    f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'"
+                )
+                return QMessageBox.Yes
+            except Exception as exc:
+                QMessageBox.critical(self, "Stop Failed", str(exc))
+                return QMessageBox.Cancel
+        if clicked == leave_button:
+            return QMessageBox.No
+        if clicked == cancel_button:
+            return QMessageBox.Cancel
+        return QMessageBox.Cancel
 
     def _on_arch_changed(self, architecture: str) -> None:
         qemu_path = find_default_qemu(architecture)
