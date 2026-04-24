@@ -61,14 +61,14 @@ class DisplayManager:
             screens = AppKit.NSScreen.screens()
             primary_frame = screens[0].frame()
             max_y = int(primary_frame.size.height)
-            
+
             displays = []
             for i, screen in enumerate(screens):
                 frame = screen.frame()
                 # Convert AppKit (bottom-up) to Tkinter (top-down)
                 # Tkinter Y = 0 is the top of the primary screen
                 tk_y = int(max_y - (frame.origin.y + frame.size.height))
-                
+
                 displays.append(
                     {
                         "index": i,
@@ -161,7 +161,7 @@ class HotspotWindow:
         debug_print("Initializing HotspotWindow...")
         self.root = root
         self.window = tk.Toplevel(self.root)
-        
+
         # Use a more robust way to hide title bar on macOS
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
@@ -173,7 +173,7 @@ class HotspotWindow:
         width, height = 400, 15  # Even larger hit area for confirmation
         x = target["x"] + (target["width"] // 2) - (width // 2)
         y = target["y"]
-        
+
         geo = f"{width}x{height}+{x}+{y}"
         debug_print(f"Applying Hotspot geometry: {geo}")
         self.window.geometry(geo)
@@ -200,7 +200,7 @@ class HotspotWindow:
         self.hover_start = None
 
     def check_hover(self):
-        if self.hover_start and (time.time() - self.hover_start >= 0.8): # Faster trigger (0.8s)
+        if self.hover_start and (time.time() - self.hover_start >= 0.8):  # Faster trigger (0.8s)
             debug_print("Hotspot trigger activated!")
             self.settings_callback()
             self.hover_start = None
@@ -382,7 +382,7 @@ def run_launcher(config, dry_run=False):
     # Network Setup
     net_mode = config.get("network_mode", "user")
     debug_print(f"Loaded network_mode from config: {net_mode}")
-    
+
     if net_mode == "vmnet-shared":
         qemu_command.extend(["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"])
     elif net_mode == "bridge-existing":
@@ -406,23 +406,24 @@ def run_launcher(config, dry_run=False):
     needs_root = net_mode != "user"
     try:
         debug_print(f"Final Command Construction: needs_root={needs_root}")
-        
+
         # Robust shell escaping for AppleScript/Shell
         def sh_escape(s):
             return "'" + s.replace("'", "'\\''") + "'"
-        
+
         escaped_command = [sh_escape(a) for a in qemu_command]
         debug_print("Full QEMU command:", " ".join(qemu_command))
-        
+
         if needs_root:
             if sys.platform == "darwin":
                 # macOS Native elevation
                 from AppKit import NSAppleScript
+
                 cmd_str = " ".join(escaped_command)
                 debug_print(f"Executing elevated script: {cmd_str}")
                 script_src = f'do shell script "{cmd_str}" with administrator privileges'
                 script = NSAppleScript.alloc().initWithSource_(script_src)
-                
+
                 def _run_elevated():
                     result, error = script.executeAndReturnError_(None)
                     if error:
@@ -431,8 +432,9 @@ def run_launcher(config, dry_run=False):
                         debug_print("Elevated launch successful.")
 
                 import threading
+
                 threading.Thread(target=_run_elevated, daemon=True).start()
-                proc = None 
+                proc = None
             else:
                 # Linux Native elevation via pkexec
                 debug_print("Triggering Linux elevation via pkexec...")
@@ -666,7 +668,7 @@ if __name__ == "__main__":
             for window in window_list:
                 if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
                     pid = window.get(kCGWindowOwnerPID)
-                    
+
                     # Try native Accessibility first
                     app_ref = AXUIElementCreateApplication(pid)
                     error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
@@ -678,13 +680,18 @@ if __name__ == "__main__":
                         # Fallback to Native Quartz Keystroke (Cmd+Ctrl+F)
                         # 'f' is keycode 3
                         from Quartz import (
-                            CGEventCreateKeyboardEvent, CGEventPost, kCGHIDEventTap, 
-                            kCGEventFlagMaskCommand, kCGEventFlagMaskControl, CGEventSetFlags
+                            CGEventCreateKeyboardEvent,
+                            CGEventPost,
+                            CGEventSetFlags,
+                            kCGEventFlagMaskCommand,
+                            kCGEventFlagMaskControl,
+                            kCGHIDEventTap,
                         )
+
                         f_down = CGEventCreateKeyboardEvent(None, 3, True)
                         CGEventSetFlags(f_down, kCGEventFlagMaskCommand | kCGEventFlagMaskControl)
                         CGEventPost(kCGHIDEventTap, f_down)
-                        
+
                         f_up = CGEventCreateKeyboardEvent(None, 3, False)
                         CGEventPost(kCGHIDEventTap, f_up)
                     break
@@ -721,8 +728,8 @@ if __name__ == "__main__":
     # Global Hotkey Monitor for macOS
     if sys.platform == "darwin" and AppKit:
         try:
-            from AppKit import NSEvent, NSKeyDownMask, NSCommandKeyMask, NSControlKeyMask
-            
+            from AppKit import NSCommandKeyMask, NSControlKeyMask, NSEvent, NSKeyDownMask
+
             def global_key_handler(event):
                 # Check for Cmd+Ctrl+F (Keycode 3 is 'f')
                 if event.keyCode() == 3:
