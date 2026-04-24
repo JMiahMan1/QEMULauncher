@@ -10,6 +10,3 @@ ignore = [
     "E501", # Line too long
     "W293", # Blank line contains whitespace
 ]
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"
