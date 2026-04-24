@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from qemu_launcher.capabilities import QemuCapabilities, parse_keyed_list, probe_qemu
+from qemu_launcher.capabilities import QemuCapabilities, find_default_qemu, parse_keyed_list, probe_qemu
 from qemu_launcher.config import (
     AppPaths,
     AppSettings,
@@ -181,17 +181,22 @@ def test_virtiofs_requires_socket(tmp_path: Path):
 
 
 def test_probe_qemu_uses_real_binary():
-    caps = probe_qemu("/usr/bin/qemu-system-x86_64")
+    executable = find_default_qemu("x86_64")
+    if not executable:
+        pytest.skip("qemu-system-x86_64 not installed")
+    caps = probe_qemu(executable)
     assert caps.version
     assert "kvm" in caps.accelerators or "tcg" in caps.accelerators
     assert "user" in caps.netdev_backends
 
 
-@pytest.mark.skipif(not Path("/usr/bin/qemu-system-x86_64").exists(), reason="qemu not installed")
 def test_qmp_smoke(tmp_path: Path):
+    executable = find_default_qemu("x86_64")
+    if not executable:
+        pytest.skip("qemu-system-x86_64 not installed")
     process = subprocess.Popen(
         [
-            "/usr/bin/qemu-system-x86_64",
+            executable,
             "-machine",
             "q35,accel=tcg",
             "-display",

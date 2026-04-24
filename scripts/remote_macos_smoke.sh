@@ -47,9 +47,13 @@ import sys
 if sys.version_info < (3, 12):
     raise SystemExit(f"Python 3.12+ is required on the remote Mac. Found {sys.version.split()[0]}.")
 PY
-$MAC_TEST_PYTHON -m pip install -r requirements.txt
-$MAC_TEST_PYTHON -m ruff check .
-$MAC_TEST_PYTHON -m pytest -q
-$MAC_TEST_PYTHON qemu_app.py --integrity-check
+SMOKE_VENV="$HOME/.cache/qemu-launcher-mac-smoke-venv"
+mkdir -p "$(dirname "$SMOKE_VENV")"
+$MAC_TEST_PYTHON -m venv "$SMOKE_VENV"
+"$SMOKE_VENV/bin/python" -m pip install --upgrade pip
+"$SMOKE_VENV/bin/python" -m pip install -r requirements.txt
+"$SMOKE_VENV/bin/python" -m ruff check .
+"$SMOKE_VENV/bin/python" -m pytest -q
+"$SMOKE_VENV/bin/python" qemu_app.py --integrity-check
 ./build.sh remote-smoke
 EOF
