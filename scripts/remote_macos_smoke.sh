@@ -42,8 +42,8 @@ git fetch --all --tags
 git checkout "$MAC_TEST_BRANCH"
 git pull --ff-only || true
 $MAC_TEST_PYTHON -m pip install -r requirements.txt
-ruff check .
-pytest -q
+$MAC_TEST_PYTHON -m ruff check .
+$MAC_TEST_PYTHON -m pytest -q
 $MAC_TEST_PYTHON qemu_app.py --integrity-check
 ./build.sh remote-smoke
 EOF
