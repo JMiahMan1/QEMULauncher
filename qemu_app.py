@@ -127,13 +127,14 @@ class WindowManager:
             script = f"""
             tell application "System Events"
                 set qemuProc to first process whose unix id is {actual_pid}
+                set frontmost of qemuProc to true
                 set qemuWin to first window of qemuProc
                 set position of qemuWin to {{ {target["x"]}, {target["y"]} }}
                 set size of qemuWin to {{ {target["width"]}, {target["height"]} }}
                 if {str(fullscreen).lower()} then
-                    try
-                        set value of attribute "AXFullScreen" of qemuWin to true
-                    end try
+                    delay 0.5
+                    -- Standard macOS Fullscreen shortcut
+                    keystroke "f" using {{command down, control down}}
                 end if
             end tell
             """
@@ -154,15 +155,15 @@ class HotspotWindow:
         self.window = tk.Toplevel(self.root)
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
-        self.window.attributes("-alpha", 0.4)
+        self.window.attributes("-alpha", 0.6)  # Slightly more visible
         self.window.configure(bg="#2196f3")  # Material Blue
 
         # Position at top center of target display
         target = DisplayManager.get_target_display()
-        width, height = 80, 4
+        width, height = 120, 6  # Slightly larger target
         x = target["x"] + (target["width"] // 2) - (width // 2)
         y = target["y"]
-        # On macOS, Y=0 is top in screen coordinates for window placement
+        # On macOS, geometry uses top-left origin
         self.window.geometry(f"{width}x{height}+{x}+{y}")
 
         self.window.bind("<Enter>", lambda e: self.on_enter())
@@ -170,19 +171,22 @@ class HotspotWindow:
         self.settings_callback = settings_callback
         self.hover_start = None
 
+        # Ensure it stays on top
+        self.window.lift()
+
     def on_enter(self):
         self.window.configure(bg="#4caf50")  # Turn Green on hover
-        self.window.attributes("-alpha", 0.8)
+        self.window.attributes("-alpha", 0.9)
         self.hover_start = time.time()
         self.check_hover()
 
     def on_leave(self):
         self.window.configure(bg="#2196f3")
-        self.window.attributes("-alpha", 0.4)
+        self.window.attributes("-alpha", 0.6)
         self.hover_start = None
 
     def check_hover(self):
-        if self.hover_start and (time.time() - self.hover_start >= 2):
+        if self.hover_start and (time.time() - self.hover_start >= 1.5):  # Faster trigger (1.5s)
             debug_print("Hotspot trigger activated!")
             self.settings_callback()
             self.hover_start = None
@@ -607,7 +611,34 @@ if __name__ == "__main__":
 
     # Initialize main UI root (MUST be on main thread)
     root = tk.Tk()
+    root.title("QEMU Launcher")
     root.withdraw()
+
+    def toggle_fullscreen(event=None):
+        # Find QEMU process and send fullscreen command
+        try:
+            from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll, kCGWindowOwnerPID
+
+            window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
+            for window in window_list:
+                if "qemu-system" in window.get("kCGWindowOwnerName", "").lower():
+                    pid = window.get(kCGWindowOwnerPID)
+                    script = f'tell application "System Events" to tell process id {pid} to keystroke "f" using {{command down, control down}}'
+                    subprocess.run(["osascript", "-e", script])
+                    break
+        except Exception:
+            pass
+
+    # Setup Menu Bar
+    menubar = tk.Menu(root)
+    view_menu = tk.Menu(menubar, tearoff=0)
+    view_menu.add_command(label="Toggle Fullscreen", command=toggle_fullscreen, accelerator="Cmd+Ctrl+F")
+    view_menu.add_command(label="Settings...", command=lambda: run_setup_ui(config, parent_root=root))
+    menubar.add_cascade(label="View", menu=view_menu)
+    root.config(menu=menubar)
+
+    # Bind Fullscreen Shortcut
+    root.bind_all("<Control-Command-f>", toggle_fullscreen)
 
     def open_settings():
         run_setup_ui(config, parent_root=root)
