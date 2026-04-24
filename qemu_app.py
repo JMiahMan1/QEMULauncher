@@ -158,8 +158,8 @@ class HotspotWindow:
         self.window.attributes("-alpha", 0.4)
         self.window.configure(bg="#2196f3")  # Material Blue
 
-        # Position at top center
-        target = DisplayManager.get_displays()[0]  # Primary
+        # Position at top center of target display
+        target = DisplayManager.get_target_display()
         width, height = 80, 4
         x = target["x"] + (target["width"] // 2) - (width // 2)
         y = target["y"]
