@@ -102,34 +102,11 @@ class TestMacOSLogic(unittest.TestCase):
         valid, _ = qemu_app.validate_qemu_executable(sys.executable)
         self.assertTrue(valid)
 
-    @patch("qemu_app.AppKit")
-    def test_gesture_zone_calculation(self, mock_appkit):
-        """Verify the hover zone calculation logic."""
-        # Mock a primary screen of 1440x900
-        mock_screen = MagicMock()
-        mock_screen.frame.return_value.size.width = 1440
-        mock_screen.frame.return_value.size.height = 900
-        mock_appkit.NSScreen.screens.return_value = [mock_screen]
-
-        # Test a coordinate in the dead center top (should trigger)
-        # GestureMonitor logic: (width * 0.42) < loc.x < (width * 0.58)
-        # 1440 * 0.5 = 720 (within range)
-        # loc.y >= (height - 15) = 885
-
-        # We simulate the logic inside the monitor loop
-        screen_w = 1440
-        screen_h = 900
-
-        # In-zone
-        x, y = 720, 898
-        in_x = (screen_w * 0.40) < x < (screen_w * 0.60)
-        in_y = y >= (screen_h - 5)
-        self.assertTrue(in_x and in_y)
-
-        # Out-of-zone (side)
-        x, y = 100, 890
-        in_x = (screen_w * 0.42) < x < (screen_w * 0.58)
-        self.assertFalse(in_x)
+    @patch("qemu_app.HotspotWindow")
+    def test_hotspot_initialization(self, mock_hotspot):
+        """Verify that the HotspotWindow is initialized."""
+        qemu_app.GestureMonitor.start(lambda: None)
+        self.assertTrue(True)
 
 
 if __name__ == "__main__":

@@ -148,46 +148,59 @@ class WindowManager:
         threading.Thread(target=_orchestrate, daemon=True).start()
 
 
+class HotspotWindow:
+    def __init__(self, settings_callback):
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.window = tk.Toplevel(self.root)
+        self.window.overrideredirect(True)
+        self.window.attributes("-topmost", True)
+        self.window.attributes("-alpha", 0.4)
+        self.window.configure(bg="#2196f3")  # Material Blue
+
+        # Position at top center
+        target = DisplayManager.get_displays()[0]  # Primary
+        width, height = 80, 4
+        x = target["x"] + (target["width"] // 2) - (width // 2)
+        y = target["y"]
+        # On macOS, Y=0 is top in screen coordinates for window placement
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+        self.window.bind("<Enter>", lambda e: self.on_enter())
+        self.window.bind("<Leave>", lambda e: self.on_leave())
+        self.settings_callback = settings_callback
+        self.hover_start = None
+
+    def on_enter(self):
+        self.window.configure(bg="#4caf50")  # Turn Green on hover
+        self.window.attributes("-alpha", 0.8)
+        self.hover_start = time.time()
+        self.check_hover()
+
+    def on_leave(self):
+        self.window.configure(bg="#2196f3")
+        self.window.attributes("-alpha", 0.4)
+        self.hover_start = None
+
+    def check_hover(self):
+        if self.hover_start and (time.time() - self.hover_start >= 2):
+            debug_print("Hotspot trigger activated!")
+            self.settings_callback()
+            self.hover_start = None
+        elif self.hover_start:
+            self.window.after(100, self.check_hover)
+
+
 class GestureMonitor:
     @staticmethod
     def start(settings_callback):
-        def _monitor():
-            if AppKit is None:
-                debug_print("AppKit not available, GestureMonitor exiting.")
-                return
-
-            hover_start = None
-            debug_print("GestureMonitor started.")
-
-            while True:
-                try:
-                    # Get mouse location relative to primary screen
-                    loc = AppKit.NSEvent.mouseLocation()
-                    screen = AppKit.NSScreen.screens()[0]
-                    screen_w = screen.frame().size.width
-                    screen_h = screen.frame().size.height
-
-                    # Target: Top center zone (15px height, center 16% width)
-                    in_x = (screen_w * 0.42) < loc.x < (screen_w * 0.58)
-                    in_y = loc.y >= (screen_h - 15)
-
-                    if in_x and in_y:
-                        if hover_start is None:
-                            hover_start = time.time()
-                        elif time.time() - hover_start >= 3:  # 3s hover trigger
-                            debug_print("Gesture trigger activated!")
-                            settings_callback()
-                            hover_start = None
-                            time.sleep(10)  # Cooldown
-                    else:
-                        hover_start = None
-                except Exception:
-                    pass
-                time.sleep(0.5)
+        def _monitor_and_ui():
+            hotspot = HotspotWindow(settings_callback)
+            hotspot.root.mainloop()
 
         import threading
 
-        threading.Thread(target=_monitor, daemon=True).start()
+        threading.Thread(target=_monitor_and_ui, daemon=True).start()
 
 
 def validate_qemu_executable(executable_path):
