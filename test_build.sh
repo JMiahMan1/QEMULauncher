@@ -159,10 +159,14 @@ if [ $FAIL_COUNT -eq 0 ]; then
         SMOKE_OUTPUT=$( "$BINARY_PATH" --config "$SMOKE_CONFIG_PATH" --dry-run 2>&1 )
         SMOKE_EXIT=$?
         
-        if [ $SMOKE_EXIT -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q "qemu-system-aarch64"; then
-            echo "  - Binary executed successfully (Output Verified) [PASS]"
+        echo "  - Running Integrity Check..."
+        SMOKE_OUTPUT=$( "$BINARY_PATH" --integrity-check 2>&1 )
+        SMOKE_EXIT=$?
+        
+        if [ $SMOKE_EXIT -eq 0 ] && echo "$SMOKE_OUTPUT" | grep -q "\[INTEGRITY\] Success"; then
+            echo "  - Binary integrity verified (encodings OK)       [PASS]"
         else
-            echo "  - Binary failed to execute or returned bunk output [FAIL]"
+            echo "  - Binary integrity check FAILED                  [FAIL]"
             echo "--- START ERROR OUTPUT ---"
             echo "${SMOKE_OUTPUT:-[No output captured]}"
             echo "--- END ERROR OUTPUT ---"

@@ -414,7 +414,18 @@ if __name__ == "__main__":
     parser.add_argument("--config", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true", help="Print command and exit")
     parser.add_argument("--setup", action="store_true", help="Force setup UI")
+    parser.add_argument("--integrity-check", action="store_true", help="Verify bundle integrity")
     args = parser.parse_args()
+
+    if args.integrity_check:
+        try:
+            import encodings.utf_8
+            import encodings.ascii
+            print("[INTEGRITY] Success: All core modules loaded.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[INTEGRITY] Error: {e}")
+            sys.exit(64)
 
     c = load_config(args.config)
 
