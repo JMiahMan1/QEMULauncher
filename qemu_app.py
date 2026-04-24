@@ -14,6 +14,11 @@ try:
 except ImportError:
     AppKit = None
 
+try:
+    import Quartz
+except ImportError:
+    Quartz = None
+
 # ================================================================
 # BUNDLE HARDENING: Early imports for PyInstaller
 # ================================================================
@@ -156,42 +161,45 @@ class WindowManager:
         def _orchestrate():
             start_time = time.time()
             actual_pid = pid
-            
+
             debug_print(f"Orchestrating window for target PID {pid} (fullscreen={fullscreen})...")
-            
+
             while time.time() - start_time < 20:
                 window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
                 for window in window_list:
                     owner_name = window.get("kCGWindowOwnerName", "").lower()
                     if "qemu-system" in owner_name:
                         win_pid = window.get(kCGWindowOwnerPID)
-                        
+
                         # Match by PID if provided, otherwise grab first QEMU window
                         if actual_pid is None or win_pid == actual_pid:
                             actual_pid = win_pid
-                            
+
                             app_ref = AXUIElementCreateApplication(actual_pid)
                             error, windows = AXUIElementCopyAttributeValue(app_ref, "AXWindows", None)
-                            
+
                             if error == 0 and windows:
                                 win = windows[0]
                                 debug_print(f"Applying orchestration to PID {actual_pid}")
-                                
+
                                 # 1. Position
                                 if target_display:
-                                    AXUIElementSetAttributeValue(win, "AXPosition", (target_display["x"], target_display["y"]))
-                                
+                                    AXUIElementSetAttributeValue(
+                                        win, "AXPosition", (target_display["x"], target_display["y"])
+                                    )
+
                                 # 2. Fullscreen
                                 if fullscreen:
                                     # Wait a tiny bit for the window to stabilize
                                     time.sleep(1)
                                     AXUIElementSetAttributeValue(win, "AXFullScreen", True)
-                                
+
                                 return
                 time.sleep(1)
             debug_print("Orchestration timeout: Window not found.")
 
         import threading
+
         threading.Thread(target=_orchestrate, daemon=True).start()
 
 
@@ -473,7 +481,7 @@ def run_launcher(config, dry_run=False):
                 import threading
 
                 threading.Thread(target=_run_elevated, daemon=True).start()
-                proc = None 
+                proc = None
             else:
                 # Linux Native elevation via pkexec
                 debug_print("Triggering Linux elevation via pkexec...")
@@ -709,7 +717,7 @@ if __name__ == "__main__":
     # --- UI REQUIRED FROM THIS POINT ---
     root = tk.Tk()
     root.title("QEMU Launcher")
-    
+
     # Configure global styles
     style = ttk.Style()
     if sys.platform == "darwin":
@@ -726,7 +734,7 @@ if __name__ == "__main__":
     view_menu.add_command(label="Settings...", command=lambda: run_setup_ui(config, parent_root=root))
     menubar.add_cascade(label="View", menu=view_menu)
     root.config(menu=menubar)
-    
+
     # Bind Key Event
     root.bind_all("<Control-Command-f>", toggle_fullscreen_callback)
 
@@ -736,22 +744,22 @@ if __name__ == "__main__":
         root.mainloop()
     else:
         # RUN MODE
-        root.withdraw() # Hide launcher root
+        root.withdraw()  # Hide launcher root
         debug_print("Starting QEMU Launcher in Run Mode...")
-        
+
         # Start QEMU
         proc = run_launcher(config)
-        
+
         # Initialize Hotspot
         _ = GestureMonitor.start(root, lambda: run_setup_ui(config, parent_root=root))
-        
+
         # Start Global Monitor for macOS
         if sys.platform == "darwin" and AppKit:
             try:
                 from AppKit import NSCommandKeyMask, NSControlKeyMask, NSEvent, NSKeyDownMask
 
                 def global_key_handler(event):
-                    if event.keyCode() == 3: # 'F'
+                    if event.keyCode() == 3:  # 'F'
                         flags = event.modifierFlags()
                         if (flags & NSCommandKeyMask) and (flags & NSControlKeyMask):
                             debug_print("Global Hotkey Detected: Cmd+Ctrl+F")

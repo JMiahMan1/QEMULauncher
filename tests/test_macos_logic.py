@@ -37,6 +37,7 @@ class TestMacOSLogic(unittest.TestCase):
         mock_get.return_value = [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
         qemu_app.WindowManager.orchestrate_window("qemu-system", fullscreen=True)
         # Verify that a thread was initialized to handle the window orchestration
+
     def test_coordinate_conversion(self):
         """Verify AppKit to Tkinter coordinate translation."""
         with patch("qemu_app.AppKit") as mock_appkit:
@@ -45,21 +46,21 @@ class TestMacOSLogic(unittest.TestCase):
             mock_screen0.frame.return_value.origin.y = 0
             mock_screen0.frame.return_value.size.width = 1920
             mock_screen0.frame.return_value.size.height = 1080
-            
+
             mock_screen1 = MagicMock()
             mock_screen1.frame.return_value.origin.x = 1920
             mock_screen1.frame.return_value.origin.y = 0
             mock_screen1.frame.return_value.size.width = 1920
             mock_screen1.frame.return_value.size.height = 1080
-            
+
             mock_appkit.NSScreen.screens.return_value = [mock_screen0, mock_screen1]
-            
+
             displays = qemu_app.DisplayManager.get_displays()
-            
+
             # Primary screen: tk_y = 1080 - (0 + 1080) = 0
             self.assertEqual(displays[0]["y"], 0)
             self.assertEqual(displays[0]["x"], 0)
-            
+
             # Secondary screen: tk_y = 1080 - (0 + 1080) = 0
             self.assertEqual(displays[1]["y"], 0)
             self.assertEqual(displays[1]["x"], 1920)
@@ -91,32 +92,36 @@ class TestMacOSLogic(unittest.TestCase):
         """Verify that native elevation is used when required."""
         mock_get.return_value = [{"x": 0, "y": 0, "width": 1920, "height": 1080, "is_primary": True}]
         self.mock_config["network_mode"] = "vmnet-shared"
-        
+
         with patch("qemu_app.sys.platform", "darwin"):
             mock_nsapple = MagicMock()
             # Patch the global AppKit module so 'from AppKit import NSAppleScript' works
             with patch.dict("sys.modules", {"AppKit": MagicMock()}):
                 import AppKit
+
                 AppKit.NSAppleScript = mock_nsapple
-                
+
                 # Mock AppKit.NSAppleScript.alloc().initWithSource_(...).executeAndReturnError_(None)
                 mock_script_instance = MagicMock()
                 mock_nsapple.alloc.return_value.initWithSource_.return_value = mock_script_instance
                 mock_script_instance.executeAndReturnError_.return_value = (None, None)
-                
+
                 # We expect it to NOT use subprocess.Popen directly but use NSAppleScript
                 with patch("subprocess.Popen"):
                     qemu_app.run_launcher(self.mock_config)
                     mock_nsapple.alloc.return_value.initWithSource_.assert_called_once()
-                    self.assertIn("with administrator privileges", mock_nsapple.alloc.return_value.initWithSource_.call_args[0][0])
+                    self.assertIn(
+                        "with administrator privileges", mock_nsapple.alloc.return_value.initWithSource_.call_args[0][0]
+                    )
 
     def test_config_io(self):
         """Test loading and saving configuration."""
         import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as tf:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as tf:
             tf.write("[VM]\nmemory = 4G\ncpu_cores = 4\n")
             temp_name = tf.name
-        
+
         try:
             config = qemu_app.load_config(temp_name)
             self.assertIsNotNone(config)
