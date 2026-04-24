@@ -95,7 +95,11 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install pyinstaller ruff
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Exclude macOS-specific packages from requirements.txt on Linux
+          if [ -f requirements.txt ]; then
+            grep -vE "pyobjc|py2app" requirements.txt > requirements_linux.txt
+            pip install -r requirements_linux.txt || true
+          fi
       - name: Build Linux Binary
         run: |
           pyinstaller --onefile --name "qemu-launcher-linux" qemu_app.py
