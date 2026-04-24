@@ -149,9 +149,8 @@ class WindowManager:
 
 
 class HotspotWindow:
-    def __init__(self, settings_callback):
-        self.root = tk.Tk()
-        self.root.withdraw()
+    def __init__(self, root, settings_callback):
+        self.root = root
         self.window = tk.Toplevel(self.root)
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
@@ -192,15 +191,13 @@ class HotspotWindow:
 
 
 class GestureMonitor:
+    _instance = None
+
     @staticmethod
-    def start(settings_callback):
-        def _monitor_and_ui():
-            hotspot = HotspotWindow(settings_callback)
-            hotspot.root.mainloop()
-
-        import threading
-
-        threading.Thread(target=_monitor_and_ui, daemon=True).start()
+    def start(root, settings_callback):
+        if GestureMonitor._instance is None:
+            GestureMonitor._instance = HotspotWindow(root, settings_callback)
+        return GestureMonitor._instance
 
 
 def validate_qemu_executable(executable_path):
@@ -412,9 +409,10 @@ def run_launcher(config, dry_run=False):
 # ================================================================
 # SETUP UI
 # ================================================================
-def run_setup_ui(existing_config=None):
-    root = tk.Tk()
-    root.withdraw()
+def run_setup_ui(existing_config=None, parent_root=None):
+    root = parent_root or tk.Tk()
+    if not parent_root:
+        root.withdraw()
 
     # Configure styles
     style = ttk.Style()
@@ -607,8 +605,15 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
 
-    # Start background monitor
-    GestureMonitor.start(lambda: run_setup_ui(config))
+    # Initialize main UI root (MUST be on main thread)
+    root = tk.Tk()
+    root.withdraw()
+
+    def open_settings():
+        run_setup_ui(config, parent_root=root)
+
+    # Start monitor hotspot
+    GestureMonitor.start(root, open_settings)
 
     if args.dry_run:
         if config:
@@ -617,6 +622,7 @@ if __name__ == "__main__":
             print("Error: No config found for dry-run")
             sys.exit(1)
     elif args.setup or not config or not SETUP_COMPLETE_FILE.is_file():
-        run_setup_ui(config)
+        run_setup_ui(config, parent_root=root)
     else:
         run_launcher(config)
+        root.mainloop()

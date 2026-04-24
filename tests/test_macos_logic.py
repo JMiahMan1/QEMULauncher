@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 # Add the parent directory to sys.path to import qemu_app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -105,7 +105,7 @@ class TestMacOSLogic(unittest.TestCase):
     @patch("qemu_app.HotspotWindow")
     def test_hotspot_initialization(self, mock_hotspot):
         """Verify that the HotspotWindow is initialized."""
-        qemu_app.GestureMonitor.start(lambda: None)
+        qemu_app.GestureMonitor.start(MagicMock(), lambda: None)
         self.assertTrue(True)
 
 
