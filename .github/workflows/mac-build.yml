@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - "main"
+      - "qemu-launcher-refactor"
       - "fix-*"
     tags:
       - "*"
   pull_request:
     branches:
       - "main"
+      - "qemu-launcher-refactor"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -92,14 +94,18 @@ jobs:
   build-linux-x86:
     needs: test
     runs-on: ubuntu-24.04
-    container: fedora:latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Install Dependencies
         run: |
-          dnf install -y python3-devel gcc ruby-devel rubygems rpm-build git tk-devel tcl-devel
-          gem install --no-document fpm
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rpm
+          sudo gem install --no-document fpm
           python3 -m pip install -r requirements.txt
       - name: Build Binary and RPM
         run: |
