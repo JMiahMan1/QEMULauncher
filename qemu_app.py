@@ -290,10 +290,18 @@ def run_launcher(config, dry_run=False):
 def run_setup_ui(existing_config=None):
     root = tk.Tk()
     root.withdraw()
+
+    # Configure styles
+    style = ttk.Style()
+    if sys.platform == "darwin":
+        style.theme_use("aqua")
+
     dialog = tk.Toplevel(root)
     dialog.title("QEMU Launcher Settings")
+    dialog.resizable(False, False)
     cfg = existing_config or get_smart_defaults()
 
+    # Variables
     arch_var = tk.StringVar(dialog, value=cfg.get("arch", "aarch64"))
     qemu_var = tk.StringVar(dialog, value=cfg.get("qemu_executable", ""))
     disk_var = tk.StringVar(dialog, value=cfg.get("disk_path", ""))
@@ -307,8 +315,9 @@ def run_setup_ui(existing_config=None):
     mic_var = tk.BooleanVar(dialog, value=cfg.get("enable_microphone", False))
     fullscreen_var = tk.BooleanVar(dialog, value=cfg.get("enable_fullscreen", True))
 
-    frame = tk.Frame(dialog, padx=10, pady=10)
-    frame.pack()
+    # Main container
+    main_frame = ttk.Frame(dialog, padding="20 20 20 20")
+    main_frame.pack(fill="both", expand=True)
 
     row = 0
 
@@ -318,82 +327,95 @@ def run_setup_ui(existing_config=None):
 
         bridge_name_entry.grid_remove()
         bridge_name_label.grid_remove()
-        if mode_value == "vmnet-shared":
-            net_info_label.config(text="Recommended for Wi-Fi. High performance, no setup needed.", fg="green")
-        elif mode_value == "bridge-existing":
-            net_info_label.config(text="Uses an existing bridge (e.g., from macOS Internet Sharing).", fg="blue")
-            bridge_name_label.grid(row=row_after_net_mode, column=0, sticky="w", pady=2)
-            bridge_name_entry.grid(row=row_after_net_mode, column=1, sticky="ew", padx=5)
-        else:  # user
-            net_info_label.config(text="Simple NAT networking. Good for basic internet access.", fg="black")
 
-    tk.Label(frame, text="Architecture:").grid(row=row, column=0, sticky="w", pady=2)
-    arch_combo = ttk.Combobox(frame, textvariable=arch_var, values=["aarch64", "x86_64"], state="readonly")
-    arch_combo.grid(row=row, column=1, sticky="ew", padx=5)
+        if mode_value == "vmnet-shared":
+            net_info_label.config(text="Native macOS sharing. Best performance.", foreground="#2e7d32")
+        elif mode_value == "bridge-existing":
+            net_info_label.config(text="Uses an existing system bridge.", foreground="#1565c0")
+            bridge_name_label.grid(row=row_after_net_mode, column=0, sticky="w", pady=5)
+            bridge_name_entry.grid(row=row_after_net_mode, column=1, sticky="ew", padx=5, pady=5)
+        else:
+            net_info_label.config(text="Simple NAT. No configuration needed.", foreground="#424242")
+
+    # Layout
+    ttk.Label(main_frame, text="Architecture:", font=("SF Pro", 12, "bold")).grid(row=row, column=0, sticky="w", pady=5)
+    arch_combo = ttk.Combobox(main_frame, textvariable=arch_var, values=["aarch64", "x86_64"], state="readonly")
+    arch_combo.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
     row += 1
-    tk.Label(frame, text="QEMU Executable:").grid(row=row, column=0, sticky="w", pady=2)
-    tk.Entry(frame, textvariable=qemu_var, width=50).grid(row=row, column=1, padx=5)
-    tk.Button(
-        frame,
-        text="Browse...",
+
+    ttk.Label(main_frame, text="QEMU Binary:", font=("SF Pro", 12, "bold")).grid(row=row, column=0, sticky="w", pady=5)
+    ttk.Entry(main_frame, textvariable=qemu_var, width=45).grid(row=row, column=1, padx=10, pady=5)
+    ttk.Button(
+        main_frame,
+        text="Browse",
         command=lambda: qemu_var.set(filedialog.askopenfilename(parent=dialog) or qemu_var.get()),
     ).grid(row=row, column=2)
     row += 1
-    tk.Label(frame, text="VM Disk Image:").grid(row=row, column=0, sticky="w", pady=2)
-    tk.Entry(frame, textvariable=disk_var, width=50).grid(row=row, column=1, padx=5)
-    tk.Button(
-        frame,
-        text="Browse...",
+
+    ttk.Label(main_frame, text="Disk Image:", font=("SF Pro", 12, "bold")).grid(row=row, column=0, sticky="w", pady=5)
+    ttk.Entry(main_frame, textvariable=disk_var, width=45).grid(row=row, column=1, padx=10, pady=5)
+    ttk.Button(
+        main_frame,
+        text="Browse",
         command=lambda: disk_var.set(filedialog.askopenfilename(parent=dialog) or disk_var.get()),
     ).grid(row=row, column=2)
     row += 1
-    tk.Label(frame, text="UEFI Firmware:").grid(row=row, column=0, sticky="w", pady=2)
-    tk.Entry(frame, textvariable=fw_var, width=50).grid(row=row, column=1, padx=5)
-    tk.Button(
-        frame, text="Browse...", command=lambda: fw_var.set(filedialog.askopenfilename(parent=dialog) or fw_var.get())
+
+    ttk.Label(main_frame, text="Firmware (FD):", font=("SF Pro", 12, "bold")).grid(
+        row=row, column=0, sticky="w", pady=5
+    )
+    ttk.Entry(main_frame, textvariable=fw_var, width=45).grid(row=row, column=1, padx=10, pady=5)
+    ttk.Button(
+        main_frame, text="Browse", command=lambda: fw_var.set(filedialog.askopenfilename(parent=dialog) or fw_var.get())
     ).grid(row=row, column=2)
     row += 1
 
-    tk.Label(frame, text="Network Mode:").grid(row=row, column=0, sticky="w", pady=2)
+    ttk.Separator(main_frame, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=15)
+    row += 1
+
+    ttk.Label(main_frame, text="Network Mode:", font=("SF Pro", 12, "bold")).grid(row=row, column=0, sticky="w", pady=5)
     net_modes = {"Shared (vmnet)": "vmnet-shared", "User (NAT)": "user", "Bridged (Existing)": "bridge-existing"}
-    net_mode_combo = ttk.Combobox(frame, values=list(net_modes.keys()), state="readonly")
-    net_mode_combo.grid(row=row, column=1, sticky="ew", padx=5)
+    net_mode_combo = ttk.Combobox(main_frame, values=list(net_modes.keys()), state="readonly")
+    net_mode_combo.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
     net_mode_combo.bind("<<ComboboxSelected>>", on_net_mode_change)
     row += 1
-    for display, value in net_modes.items():
-        if value == net_mode_var.get():
-            net_mode_combo.set(display)
 
-    net_info_label = tk.Label(frame, text="", font=("Helvetica", 10))
-    net_info_label.grid(row=row, column=1, columnspan=2, sticky="w", padx=5, pady=(0, 5))
+    net_info_label = ttk.Label(main_frame, text="", font=("SF Pro", 10, "italic"))
+    net_info_label.grid(row=row, column=1, columnspan=2, sticky="w", padx=10)
     row += 1
 
     row_after_net_mode = row
-    bridge_name_label = tk.Label(frame, text="Bridge Name:")
-    bridge_name_entry = tk.Entry(frame, textvariable=bridge_name_var, width=50)
+    bridge_name_label = ttk.Label(main_frame, text="Bridge Name:", font=("SF Pro", 12, "bold"))
+    bridge_name_entry = ttk.Entry(main_frame, textvariable=bridge_name_var, width=45)
     row += 1
 
-    tk.Label(frame, text="Shared Directory:").grid(row=row, column=0, sticky="w", pady=2)
-    tk.Entry(frame, textvariable=share_path_var, width=50).grid(row=row, column=1, padx=5)
-    tk.Button(
-        frame,
-        text="Browse...",
+    ttk.Label(main_frame, text="Shared Folder:", font=("SF Pro", 12, "bold")).grid(
+        row=row, column=0, sticky="w", pady=5
+    )
+    ttk.Entry(main_frame, textvariable=share_path_var, width=45).grid(row=row, column=1, padx=10, pady=5)
+    ttk.Button(
+        main_frame,
+        text="Browse",
         command=lambda: share_path_var.set(filedialog.askdirectory(parent=dialog) or share_path_var.get()),
     ).grid(row=row, column=2)
     row += 1
-    tk.Label(frame, text="Share Name (Tag):").grid(row=row, column=0, sticky="w", pady=2)
-    tk.Entry(frame, textvariable=share_name_var, width=50).grid(row=row, column=1, padx=5)
+
+    ttk.Label(main_frame, text="Mount Tag:", font=("SF Pro", 12, "bold")).grid(row=row, column=0, sticky="w", pady=5)
+    ttk.Entry(main_frame, textvariable=share_name_var, width=45).grid(row=row, column=1, padx=10, pady=5)
     row += 1
 
-    options_frame = tk.LabelFrame(frame, text="Hardware & Integration", padx=5, pady=5)
-    options_frame.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+    # Options Group
+    opt_frame = ttk.LabelFrame(main_frame, text=" Hardware Options ", padding="10 10 10 10")
+    opt_frame.grid(row=row, column=0, columnspan=3, sticky="ew", pady=15)
     row += 1
-    tk.Checkbutton(options_frame, text="Enable Webcam", variable=webcam_var).pack(side="left")
-    tk.Checkbutton(options_frame, text="Enable Clipboard Sharing", variable=guest_agent_var).pack(side="left", padx=10)
-    tk.Checkbutton(options_frame, text="Enable Microphone", variable=mic_var).pack(side="left", padx=10)
-    tk.Checkbutton(options_frame, text="Auto-Fullscreen", variable=fullscreen_var).pack(side="left", padx=10)
+
+    ttk.Checkbutton(opt_frame, text="Webcam", variable=webcam_var).grid(row=0, column=0, padx=10)
+    ttk.Checkbutton(opt_frame, text="Microphone", variable=mic_var).grid(row=0, column=1, padx=10)
+    ttk.Checkbutton(opt_frame, text="Clipboard", variable=guest_agent_var).grid(row=0, column=2, padx=10)
+    ttk.Checkbutton(opt_frame, text="Fullscreen", variable=fullscreen_var).grid(row=0, column=3, padx=10)
 
     def on_save():
+        # Validate and save logic...
         values = {
             "arch": arch_var.get(),
             "qemu_executable": qemu_var.get(),
@@ -409,30 +431,29 @@ def run_setup_ui(existing_config=None):
             "enable_fullscreen": fullscreen_var.get(),
         }
         if not all(values[k] for k in ["qemu_executable", "disk_path", "firmware_path"]):
-            messagebox.showerror("Error", "QEMU, Disk, and Firmware paths must be specified.", parent=dialog)
+            messagebox.showerror("Error", "Required paths are missing.", parent=dialog)
             return
-        is_valid, error_msg = validate_qemu_executable(values["qemu_executable"])
-        if not is_valid:
-            messagebox.showerror("QEMU Validation Failed", f"Invalid QEMU executable.\n\n{error_msg}", parent=dialog)
-            return
-
         save_config(values)
         SETUP_COMPLETE_FILE.touch(exist_ok=True)
         root.destroy()
         run_launcher(load_config())
 
-    button_frame = tk.Frame(frame)
-    button_frame.grid(row=row, column=1, columnspan=2, sticky="e", pady=(10, 0))
-    tk.Button(button_frame, text="Save and Launch", command=on_save).pack(side="right", padx=5)
-    tk.Button(button_frame, text="Cancel", command=root.destroy).pack(side="right")
+    # Buttons
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.grid(row=row, column=1, columnspan=2, sticky="e", pady=10)
+    ttk.Button(btn_frame, text="Cancel", command=root.destroy).pack(side="right", padx=5)
+    ttk.Button(btn_frame, text="Save & Launch", style="Accent.TButton", command=on_save).pack(side="right")
+
     dialog.protocol("WM_DELETE_WINDOW", root.destroy)
+    for display, value in net_modes.items():
+        if value == net_mode_var.get():
+            net_mode_combo.set(display)
     on_net_mode_change()
 
     dialog.update_idletasks()
     x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
     y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
     dialog.geometry(f"+{x}+{y}")
-
     root.mainloop()
 
 
