@@ -121,9 +121,9 @@ class TestMacOSLogic(unittest.TestCase):
         screen_h = 900
 
         # In-zone
-        x, y = 720, 890
-        in_x = (screen_w * 0.42) < x < (screen_w * 0.58)
-        in_y = y >= (screen_h - 15)
+        x, y = 720, 898
+        in_x = (screen_w * 0.40) < x < (screen_w * 0.60)
+        in_y = y >= (screen_h - 5)
         self.assertTrue(in_x and in_y)
 
         # Out-of-zone (side)

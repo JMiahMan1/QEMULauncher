@@ -86,22 +86,62 @@ class DisplayManager:
 
 class WindowManager:
     @staticmethod
-    def orchestrate_window(window_pid, fullscreen=True):
+    def orchestrate_window(process_pid, fullscreen=True):
         def _orchestrate():
-            time.sleep(2)  # Wait for window to appear
+            import time
+
+            try:
+                from Quartz import (
+                    CGWindowListCopyWindowInfo,
+                    kCGNullWindowID,
+                    kCGWindowListOptionAll,
+                    kCGWindowOwnerPID,
+                )
+            except ImportError:
+                debug_print("Quartz not available for window orchestration.")
+                return
+
+            debug_print(f"Orchestrating window for process {process_pid}...")
             target = DisplayManager.get_target_display()
+
+            # If launched via osascript, the process_pid belongs to osascript.
+            # We need to wait and find the child QEMU process or find by name.
+            qemu_win = None
+            for _ in range(15):  # Try for 15 seconds
+                window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
+                for window in window_list:
+                    owner_name = window.get("kCGWindowOwnerName", "")
+                    if "qemu-system" in owner_name.lower():
+                        qemu_win = window
+                        actual_pid = window.get(kCGWindowOwnerPID)
+                        break
+                if qemu_win:
+                    break
+                time.sleep(1)
+
+            if not qemu_win:
+                debug_print("Could not find QEMU window via Quartz.")
+                return
+
+            actual_pid = qemu_win.get(kCGWindowOwnerPID)
             script = f"""
             tell application "System Events"
-                set qemuWin to first window of (first process whose unix id is {window_pid})
+                set qemuProc to first process whose unix id is {actual_pid}
+                set qemuWin to first window of qemuProc
                 set position of qemuWin to {{ {target["x"]}, {target["y"]} }}
                 set size of qemuWin to {{ {target["width"]}, {target["height"]} }}
+                if {str(fullscreen).lower()} then
+                    try
+                        set value of attribute "AXFullScreen" of qemuWin to true
+                    end try
+                end if
             end tell
             """
             try:
                 subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-                debug_print(f"Orchestrated window {window_pid} to display at {target['x']},{target['y']}")
+                debug_print(f"Successfully orchestrated QEMU (PID {actual_pid}) to {target['x']},{target['y']}")
             except Exception as e:
-                debug_print(f"Orchestration failed: {e}")
+                debug_print(f"Orchestration script failed: {e}")
 
         import threading
 
@@ -332,11 +372,14 @@ def run_launcher(config, dry_run=False):
         if var in qemu_env:
             del qemu_env[var]
 
+    # Needs root for anything other than 'user' mode (vmnet requires root)
     needs_root = net_mode != "user"
     try:
         debug_print("Launching QEMU with command:", " ".join(qemu_command))
         if needs_root:
+            # We must use osascript for elevated privileges to trigger the GUI password prompt
             cmd_str = " ".join(f"'{a}'" for a in qemu_command)
+            debug_print("Triggering elevated launch via osascript...")
             proc = subprocess.Popen(
                 ["osascript", "-e", f'do shell script "{cmd_str}" with administrator privileges'], env=qemu_env
             )
