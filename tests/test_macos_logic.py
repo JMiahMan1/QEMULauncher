@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Add the parent directory to sys.path to import qemu_app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
