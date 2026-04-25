@@ -77,13 +77,29 @@ enable_fullscreen = false
         subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
         time.sleep(2)
 
-        # Launch via CLI to verify the backend logic correctly consumes the profile
+        # Launch via CLI and capture output to see why it might be failing
         print(f"-> Launching {target_name} via CLI to verify logic...")
         cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
-        # We use a longer timeout for the boot verification
-        subprocess.Popen([cli_exe, "--launch", "--profile", target_name])
-        time.sleep(15)
+        
+        try:
+            # Run with a short timeout to see if it crashes immediately
+            result = subprocess.run(
+                [cli_exe, "--launch", "--profile", target_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            print(f"Launcher Output: {result.stdout}")
+            print(f"Launcher Error: {result.stderr}")
+        except subprocess.TimeoutExpired as e:
+            # If it times out, it means it's probably running (which is good)
+            print("Launcher still running (expected)...")
+        except Exception as e:
+            print(f"Launcher execution failed: {e}")
 
+        # Wait for QEMU to stabilize
+        time.sleep(10)
+    
         # Verify Process
         result = subprocess.run(["pgrep", "-f", expected_bin], capture_output=True)
         if result.returncode == 0:
