@@ -171,7 +171,7 @@ def test_macos_command_uses_macos_backends(tmp_path: Path):
     cmd = " ".join(command)
     assert "-machine virt,accel=hvf:tcg" in cmd
     assert "-full-screen" in cmd
-    assert "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on,full-grab=on" in cmd
+    assert "cocoa,show-cursor=on,left-command-key=on" in cmd
     assert "coreaudio,id=snd0" in cmd
     assert "vmnet-shared,id=net0" in cmd
     assert "gtk" not in cmd

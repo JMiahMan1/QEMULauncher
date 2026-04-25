@@ -60,14 +60,16 @@ def _make_window_global_macos(win_id: int) -> None:
     """Uses AppKit to make a window appear on all spaces and on top of fullscreen apps."""
     try:
         import objc
-        from AppKit import NSWindowCollectionBehaviorCanJoinAllSpaces, NSWindowCollectionBehaviorFullScreenAuxiliary
 
         # win_id is the WId from Qt (which is the NSWindow pointer on macOS)
         # We wrap it in an objc_object
         ns_win = objc.objc_object(c_void_p=win_id)
-        ns_win.setCollectionBehavior_(
-            NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary
-        )
+        # NSWindowCollectionBehaviorCanJoinAllSpaces = 1
+        # NSWindowCollectionBehaviorFullScreenPrimary = 128
+        # NSWindowCollectionBehaviorFullScreenAuxiliary = 256
+        # NSWindowCollectionBehaviorFullScreenAllowsTiling = 2048
+        behavior = 1 | 128 | 256 | 2048
+        ns_win.setCollectionBehavior_(behavior)
         # Set a very high window level (above the fullscreen window)
         # kCGStatusWindowLevel is 21
         ns_win.setLevel_(21)

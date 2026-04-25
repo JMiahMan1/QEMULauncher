@@ -189,11 +189,17 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             AXIsProcessTrusted,
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
+            AXUIElementPerformAction,
             AXUIElementSetAttributeValue,
             AXValueCreate,
+            kAXChildrenAttribute,
             kAXFrontmostAttribute,
+            kAXFullScreenAttribute,
+            kAXMenuBarAttribute,
             kAXPositionAttribute,
+            kAXPressAction,
             kAXSizeAttribute,
+            kAXTitleAttribute,
             kAXValueCGPointType,
             kAXValueCGSizeType,
             kAXWindowsAttribute,
@@ -235,10 +241,36 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
 
     if fullscreen:
-        # For Cocoa QEMU, the most reliable way to fullscreen on a specific screen
-        # is to move the window there and then send the Cmd-F shortcut.
+        # Strategy 1: Direct AXFullScreen attribute (Modern QEMU)
+        error = AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
+        if error == 0:
+            time.sleep(0.5)
+            # Verify it actually went fullscreen
+            _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
+            if is_fs:
+                return None
+
+        # Strategy 2: Menu Bar Traversal (Fallback for older QEMU or stubborn Cocoa builds)
+        # Find 'View' -> 'Enter Full Screen'
+        _, menubar = AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute, None)
+        if menubar:
+            _, items = AXUIElementCopyAttributeValue(menubar, kAXChildrenAttribute, None)
+            for item in items or []:
+                _, title = AXUIElementCopyAttributeValue(item, kAXTitleAttribute, None)
+                if title == "View":
+                    _, menu_children = AXUIElementCopyAttributeValue(item, kAXChildrenAttribute, None)
+                    if menu_children:
+                        # Usually the first child is the actual AXMenu
+                        _, menu_items = AXUIElementCopyAttributeValue(menu_children[0], kAXChildrenAttribute, None)
+                        for m_item in menu_items or []:
+                            _, m_title = AXUIElementCopyAttributeValue(m_item, kAXTitleAttribute, None)
+                            if m_title in ["Enter Full Screen", "Enter Fullscreen"]:
+                                AXUIElementPerformAction(m_item, kAXPressAction)
+                                time.sleep(0.5)
+                                return None
+
+        # Strategy 3: Key Injection (Last resort fallback)
         time.sleep(0.5)
-        # 0x03 is 'f' keycode (actually it's 3 for 'f')
         kVK_ANSI_F = 0x03
         cmd_f_down = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, True)
         cmd_f_up = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, False)
@@ -246,6 +278,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             from Quartz import CGEventSetFlags
 
             CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
+            CGEventSetFlags(cmd_f_up, kCGEventFlagMaskCommand)
             CGEventPostToPid(pid, cmd_f_down)
             CGEventPostToPid(pid, cmd_f_up)
 
