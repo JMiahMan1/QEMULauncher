@@ -55,12 +55,12 @@ def test_ui_workflow():
     
     # 5. Simulate Launch Click
     print("-> Clicking 'Launch' button...")
-    script = 'tell application "System Events" to tell process "QEMU Launcher" to click (first button of window 1 whose name is "Launch")'
+    script = 'tell application "System Events" to tell process "QEMU Launcher" to click (first button of (first window whose name is "QEMU Launcher") whose name is "Launch")'
     _, err = run_applescript(script)
     if err:
         print(f"ERROR clicking button: {err}")
         # Try finding by index if name fails
-        run_applescript('tell application "System Events" to tell process "QEMU Launcher" to click button 1 of window 1')
+        run_applescript('tell application "System Events" to tell process "QEMU Launcher" to click button 1 of (first window whose name is "QEMU Launcher")')
 
     # 6. Detect Authorization Prompt with 3-minute timeout
     print("--- WAITING FOR USER PASSWORD INPUT (3 MINUTE TIMEOUT) ---")

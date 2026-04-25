@@ -26,6 +26,21 @@ def _find_profile(profile_id: str | None):
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Single instance lock for the UI
+    paths = AppPaths()
+    lock_file = paths.runtime_dir / "app.lock"
+    
+    # Use a file lock to prevent multiple instances
+    import fcntl
+    try:
+        lock_f = open(lock_file, "w")
+        fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        # If we're just doing an integrity check or dry-run, we might allow it,
+        # but for safety let's lock everything.
+        print("Another instance is already running. Exiting.", file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(description="QEMU Launcher")
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved QEMU command and exit")
     parser.add_argument("--launch", action="store_true", help="Launch the selected profile without opening the UI")
@@ -43,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         from .capabilities import probe_qemu
         from .vm import RuntimeArtifacts
         
-        capabilities = probe_qemu(paths.qemu_bin)
+        capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
             qmp_socket=paths.qmp_socket(profile.name),
             pidfile=paths.pid_file(profile.name),
