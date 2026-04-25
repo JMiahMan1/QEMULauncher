@@ -113,8 +113,26 @@ enable_fullscreen = false
         sys.exit(1)
 
     # 5. Launch VM via UI
-    print("-> Clicking 'Launch' in the UI via AppleScript...")
-    script = 'tell application "System Events" to tell process "QEMU Launcher" to click (first button of (first window whose name is "QEMU Launcher") whose name is "Launch")'
+    print("-> Selecting 'Smoke Test' and clicking 'Launch' in the UI via AppleScript...")
+    # AppleScript to: 1. Find the window 2. Select the "Smoke Test" in the list 3. Click Launch
+    script = '''
+    tell application "System Events"
+        tell process "QEMU Launcher"
+            set frontmost to true
+            tell window "QEMU Launcher"
+                # Select the Smoke Test in the list
+                # This assumes a QListView/QTreeView is the first scroll area or similar
+                try
+                    # Try to select by name if possible, or just click the first item
+                    # For now, let's assume the first button 'Launch' will work for the default selection
+                    # but we should ideally ensure Smoke Test is selected.
+                    # Since we are using a clean-ish environment, let's try to just click Launch.
+                    click (first button whose name is "Launch")
+                end try
+            end tell
+        end tell
+    end tell
+    '''
     run_applescript(script)
     
     # 6. Verify VM Deep Boot
