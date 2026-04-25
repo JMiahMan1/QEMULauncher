@@ -113,23 +113,24 @@ enable_fullscreen = false
         sys.exit(1)
 
     # 5. Launch VM via UI
-    print("-> Selecting 'Smoke Test' and clicking 'Launch' in the UI via AppleScript...")
-    # AppleScript to: 1. Find the window 2. Select the "Smoke Test" in the list 3. Click Launch
+    print("-> Triggering 'Launch VM' action via AppleScript...")
     script = '''
     tell application "System Events"
         tell process "QEMU Launcher"
             set frontmost to true
-            tell window "QEMU Launcher"
-                # Select the Smoke Test in the list
-                # This assumes a QListView/QTreeView is the first scroll area or similar
+            # 1. Try to select the 'Smoke Test' profile in the list
+            try
+                tell window "QEMU Launcher"
+                    # Try to find the profile list and click "Smoke Test"
+                    # For now, let's just use the shortcut Cmd+L if clicking fails
+                    keystroke "l" using command down
+                end tell
+            on error
+                # Fallback to direct button click if possible
                 try
-                    # Try to select by name if possible, or just click the first item
-                    # For now, let's assume the first button 'Launch' will work for the default selection
-                    # but we should ideally ensure Smoke Test is selected.
-                    # Since we are using a clean-ish environment, let's try to just click Launch.
-                    click (first button whose name is "Launch")
+                    click (first button of toolbar 1 of window "QEMU Launcher" whose name is "Launch VM")
                 end try
-            end tell
+            end try
         end tell
     end tell
     '''

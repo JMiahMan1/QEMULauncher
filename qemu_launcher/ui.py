@@ -786,6 +786,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(str(exc))
 
     def _launch_profile(self) -> None:
+        import logging
+        logger = logging.getLogger("qemu-launcher")
+        logger.info(f"UI: Launching profile '{self.current_profile_id}'")
         if not self._save_current_profile():
             return
         profile = self._current_profile()
