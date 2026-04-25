@@ -374,9 +374,10 @@ def test_vm_controller_detects_running_pid(tmp_path: Path):
     )
     controller = VMController(DummyPaths(tmp_path), profile)
     controller.artifacts.pidfile.write_text(str(os.getpid()), encoding="utf-8")
-    
+
     # Mock subprocess.run to simulate that this PID is indeed a qemu process
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
+
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="qemu-system-x86_64", returncode=0)
         assert controller.is_running() is True
