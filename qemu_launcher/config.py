@@ -72,6 +72,28 @@ class AppPaths:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def qmp_socket(self, profile_id: str) -> Path:
+        return self.profile_runtime_dir(profile_id) / "qmp.sock"
+
+    def pid_file(self, profile_id: str) -> Path:
+        return self.profile_runtime_dir(profile_id) / "qemu.pid"
+
+    def log_file(self, profile_id: str) -> Path:
+        return self.profile_state_dir(profile_id) / "qemu.log"
+
+    def stderr_log_file(self, profile_id: str) -> Path:
+        return self.profile_state_dir(profile_id) / "stderr.log"
+
+    def profile_data_dir(self, profile_id: str) -> Path:
+        path = self.data_dir / "profiles" / profile_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def profile_runtime_dir(self, profile_id: str) -> Path:
+        path = self.runtime_dir / "profiles" / profile_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
 
 def _random_profile_id() -> str:
     alphabet = string.ascii_lowercase + string.digits
