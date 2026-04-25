@@ -139,6 +139,8 @@ class AppSettings(BaseModel):
     schema_version: int = SCHEMA_VERSION
     last_used_profile: str | None = None
     recent_profiles: list[str] = Field(default_factory=list)
+    auto_launch_enabled: bool = False
+    auto_launch_profile: str | None = None
 
 
 def _toml_quote(value: str) -> str:
@@ -155,6 +157,8 @@ def write_settings(settings: AppSettings, path: Path) -> None:
         f"schema_version = {settings.schema_version}",
         f"last_used_profile = {_toml_quote(settings.last_used_profile or '')}",
         f"recent_profiles = {_toml_array(settings.recent_profiles)}",
+        f"auto_launch_enabled = {'true' if settings.auto_launch_enabled else 'false'}",
+        f"auto_launch_profile = {_toml_quote(settings.auto_launch_profile or '')}",
         "",
     ]
     path.write_text("\n".join(content), encoding="utf-8")
@@ -199,6 +203,8 @@ def load_settings(path: Path) -> AppSettings:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     if not data.get("last_used_profile"):
         data["last_used_profile"] = None
+    if not data.get("auto_launch_profile"):
+        data["auto_launch_profile"] = None
     return AppSettings.model_validate(data)
 
 

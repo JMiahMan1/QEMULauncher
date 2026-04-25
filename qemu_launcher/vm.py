@@ -26,6 +26,7 @@ class RuntimeArtifacts:
     qmp_socket: Path
     pidfile: Path
     log_file: Path
+    stderr_log_file: Path
     virtiofs_socket: Path | None = None
 
 
@@ -146,6 +147,11 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, host_platform: str
     return ["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"]
 
 
+def _network_requires_elevation(profile: VMProfile, caps: QemuCapabilities, host_platform: str) -> bool:
+    mode = _network_mode(profile, caps, host_platform)
+    return host_platform == "darwin" and mode in {"vmnet-shared", "vmnet-bridged"}
+
+
 def _sharing_backend(profile: VMProfile, caps: QemuCapabilities) -> str:
     if not profile.shared_dir_path:
         return "none"
@@ -252,8 +258,14 @@ def profile_readiness(profile: VMProfile, caps: QemuCapabilities) -> tuple[list[
         highlights.append(f"Audio: {', '.join(sorted(caps.audio_drivers))}")
     if profile.network_mode in {"bridge", "vmnet-bridged"} and not profile.bridge_name:
         issues.append("Bridge / interface name is required for bridged networking.")
+    if caps.platform == "darwin" and _network_mode(profile, caps, caps.platform) in {"vmnet-shared", "vmnet-bridged"}:
+        notes.append("macOS vmnet networking may require administrator approval on launch.")
     if has_launch_basics and profile.auto_resume:
         highlights.append(f"Resume snapshot: {profile.resume_snapshot_name}")
+        if not snapshot_exists(profile):
+            notes.append(
+                f"Snapshot '{profile.resume_snapshot_name}' does not exist yet, so launch will start from a cold boot until you save state."
+            )
 
     return issues, highlights, notes
 
@@ -329,7 +341,7 @@ def build_command(
     command.extend(_network_args(profile, caps, host_platform))
     command.extend(_usb_args(profile))
 
-    if restore_state and profile.auto_resume and profile.resume_snapshot_name:
+    if restore_state and profile.auto_resume and profile.resume_snapshot_name and snapshot_exists(profile):
         command.extend(["-loadvm", profile.resume_snapshot_name])
 
     if profile.extra_args:
@@ -399,6 +411,7 @@ class VMController:
             qmp_socket=runtime_dir / "qmp.sock",
             pidfile=runtime_dir / "qemu.pid",
             log_file=paths.logs_dir / f"{profile.profile_id}.log",
+            stderr_log_file=paths.logs_dir / f"{profile.profile_id}-stderr.log",
             virtiofs_socket=runtime_dir / "virtiofs.sock" if self.capabilities.has_virtiofsd else None,
         )
         self.state_dir = state_dir
@@ -408,6 +421,10 @@ class VMController:
 
     def preview_command(self) -> list[str]:
         return build_command(self.profile, self.capabilities, self.artifacts, restore_state=True)
+
+    @property
+    def host_platform(self) -> str:
+        return self.capabilities.platform
 
     def _start_virtiofsd(self) -> None:
         if _sharing_backend(self.profile, self.capabilities) != "virtiofs":
@@ -477,14 +494,77 @@ class VMController:
             self.artifacts.qmp_socket.unlink()
         if self.artifacts.pidfile.exists():
             self.artifacts.pidfile.unlink()
+        if self.artifacts.stderr_log_file.exists():
+            self.artifacts.stderr_log_file.unlink()
         self._start_virtiofsd()
         command = build_command(self.profile, self.capabilities, self.artifacts, restore_state=True)
-        self.process = subprocess.Popen(command, env=_clean_env(), text=True)
+        if _network_requires_elevation(self.profile, self.capabilities, self.host_platform) and os.geteuid() != 0:
+            self._launch_with_privileges(command)
+            self.process = None
+            self._ensure_started()
+        else:
+            with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
+                self.process = subprocess.Popen(
+                    command,
+                    env=_clean_env(),
+                    text=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr_handle,
+                )
+            self._ensure_started()
         self._start_display_arrangement()
         return self.process
 
+    def _launch_with_privileges(self, command: list[str]) -> None:
+        if shutil.which("osascript") is None:
+            raise ConfigurationError("macOS administrator approval requires osascript to be available.")
+        quoted_command = shell_join(command)
+        quoted_stderr = shlex.quote(str(self.artifacts.stderr_log_file))
+        script = (
+            'do shell script "nohup '
+            + _osascript_shell_escape(quoted_command)
+            + " >/dev/null 2>>"
+            + _osascript_shell_escape(quoted_stderr)
+            + ' &" with administrator privileges'
+        )
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=_clean_env(),
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "Administrator-approved launch failed.").strip()
+            raise RuntimeError(message)
+
+    def _ensure_started(self, timeout: float = 4.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.artifacts.qmp_socket.exists() or self.artifacts.pidfile.exists():
+                return
+            if self.process and self.process.poll() is not None:
+                break
+            time.sleep(0.1)
+        if self.process and self.process.poll() is None:
+            return
+        raise RuntimeError(self._startup_error_message())
+
+    def _startup_error_message(self) -> str:
+        stderr_text = _tail_text(self.artifacts.stderr_log_file)
+        qemu_log_text = _tail_text(self.artifacts.log_file)
+        parts = ["QEMU exited before the VM became ready."]
+        if stderr_text:
+            parts.append(f"stderr: {stderr_text}")
+        if qemu_log_text:
+            parts.append(f"log: {qemu_log_text}")
+        if not stderr_text and not qemu_log_text:
+            parts.append("No diagnostic output was captured.")
+        return "\n".join(parts)
+
     def _start_display_arrangement(self) -> None:
-        if not self.process or self.process.poll() is not None:
+        pid = self.process.pid if self.process and self.process.poll() is None else self._read_pid()
+        if not pid:
             return
         if not self.profile.target_display_name or should_qemu_handle_fullscreen(
             self.profile.target_display_name, self.profile.enable_fullscreen
@@ -497,7 +577,7 @@ class VMController:
 
         def worker() -> None:
             note = arrange_window(
-                self.process.pid,
+                pid,
                 self.profile.target_display_name,
                 fullscreen=self.profile.enable_fullscreen,
             )
@@ -572,3 +652,47 @@ class VMController:
 
 def shell_join(command: list[str]) -> str:
     return shlex.join(command)
+
+
+def _osascript_shell_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _tail_text(path: Path, limit: int = 600) -> str:
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()[-limit:]
+    except OSError:
+        return ""
+
+
+def _find_qemu_img(profile: VMProfile) -> str | None:
+    qemu_path = Path(profile.qemu_executable).expanduser() if profile.qemu_executable else None
+    if qemu_path:
+        sibling = qemu_path.with_name("qemu-img")
+        if sibling.exists():
+            return str(sibling)
+    return shutil.which("qemu-img")
+
+
+def snapshot_exists(profile: VMProfile) -> bool:
+    disk = profile.expanded_disk_path()
+    snapshot = profile.resume_snapshot_name
+    qemu_img = _find_qemu_img(profile)
+    if not disk or not snapshot or not qemu_img or not Path(disk).exists():
+        return False
+    result = subprocess.run(
+        [qemu_img, "snapshot", "-l", disk],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_clean_env(),
+    )
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == snapshot:
+            return True
+    return False

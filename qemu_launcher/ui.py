@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
@@ -71,11 +71,13 @@ class MainWindow(QMainWindow):
         self.profile_map = {profile.profile_id: profile for profile in self.profiles}
         self.current_profile_id = self.settings.last_used_profile or self.profiles[0].profile_id
         self.ui_settings = QSettings(APP_AUTHOR, APP_NAME)
+        self._startup_launch_done = False
         self.setWindowTitle(APP_NAME)
         self.resize(1220, 860)
         self._build_ui()
         self._restore_window_state()
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
+        QTimer.singleShot(0, self._maybe_auto_launch_startup_profile)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         controller = VMController(self.paths, self._current_profile())
@@ -200,6 +202,16 @@ class MainWindow(QMainWindow):
         self.next_steps_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         experience_layout.addWidget(self.next_steps_label)
         layout.addWidget(experience_box)
+
+        startup_box = QGroupBox("Startup")
+        startup_layout = QFormLayout(startup_box)
+        self.auto_launch_check = QCheckBox("Launch a VM when the app opens")
+        self.auto_launch_check.stateChanged.connect(self._save_app_settings_from_ui)
+        self.startup_profile_combo = QComboBox()
+        self.startup_profile_combo.currentIndexChanged.connect(self._save_app_settings_from_ui)
+        startup_layout.addRow(self.auto_launch_check)
+        startup_layout.addRow("Startup Profile", self.startup_profile_combo)
+        layout.addWidget(startup_box)
         layout.addStretch(1)
         return tab
 
@@ -366,6 +378,9 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
         edit = QLineEdit()
+        edit.setMinimumWidth(560)
+        edit.setClearButtonEnabled(True)
+        edit.textChanged.connect(lambda text, field=edit: field.setToolTip(text))
         button = QPushButton("Browse")
         button.clicked.connect(lambda: self._browse_into(edit, directory))
         layout.addWidget(edit, stretch=1)
@@ -391,6 +406,27 @@ class MainWindow(QMainWindow):
             if profile.profile_id == self.current_profile_id:
                 self.profile_list.setCurrentItem(item)
         self.profile_list.blockSignals(False)
+        self._rebuild_startup_profile_combo()
+
+    def _rebuild_startup_profile_combo(self) -> None:
+        current = self.settings.auto_launch_profile or self.current_profile_id
+        self.startup_profile_combo.blockSignals(True)
+        self.auto_launch_check.blockSignals(True)
+        self.startup_profile_combo.clear()
+        for profile in self.profile_map.values():
+            self.startup_profile_combo.addItem(profile.name, profile.profile_id)
+        index = self.startup_profile_combo.findData(current)
+        if index >= 0:
+            self.startup_profile_combo.setCurrentIndex(index)
+        self.auto_launch_check.setChecked(self.settings.auto_launch_enabled)
+        self.auto_launch_check.blockSignals(False)
+        self.startup_profile_combo.blockSignals(False)
+
+    def _save_app_settings_from_ui(self) -> None:
+        self.settings.auto_launch_enabled = self.auto_launch_check.isChecked()
+        profile_id = self.startup_profile_combo.currentData()
+        self.settings.auto_launch_profile = profile_id if isinstance(profile_id, str) else None
+        save_settings(self.paths, self.settings)
 
     def _current_profile(self) -> VMProfile:
         return self.profile_map[self.current_profile_id]
@@ -476,6 +512,8 @@ class MainWindow(QMainWindow):
             save_profile(self.paths, profile)
             self.settings.last_used_profile = profile.profile_id
             self.settings.recent_profiles = list(dict.fromkeys([profile.profile_id, *self.settings.recent_profiles]))[:10]
+            if not self.settings.auto_launch_profile:
+                self.settings.auto_launch_profile = profile.profile_id
             save_settings(self.paths, self.settings)
             self._rebuild_profile_list()
             self.status_label.setText(f"Saved profile to {self.paths.profiles_dir / (profile.profile_id + '.toml')}")
@@ -501,6 +539,9 @@ class MainWindow(QMainWindow):
         if path.exists():
             path.unlink()
         del self.profile_map[profile.profile_id]
+        if self.settings.auto_launch_profile == profile.profile_id:
+            self.settings.auto_launch_profile = next(iter(self.profile_map.keys()))
+            save_settings(self.paths, self.settings)
         self.current_profile_id = next(iter(self.profile_map.keys()))
         self._rebuild_profile_list()
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
@@ -568,6 +609,19 @@ class MainWindow(QMainWindow):
             self.status_label.setText(message)
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
+
+    def _maybe_auto_launch_startup_profile(self) -> None:
+        if self._startup_launch_done or not self.settings.auto_launch_enabled:
+            return
+        profile_id = self.settings.auto_launch_profile or self.settings.last_used_profile
+        if not profile_id or profile_id not in self.profile_map:
+            return
+        self._startup_launch_done = True
+        if profile_id != self.current_profile_id:
+            self.current_profile_id = profile_id
+            self._rebuild_profile_list()
+            self._load_profile_into_form(self.profile_map[profile_id])
+        self._launch_profile()
 
     def _show_vm_status(self) -> None:
         controller = VMController(self.paths, self._current_profile())

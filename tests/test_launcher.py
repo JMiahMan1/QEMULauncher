@@ -66,12 +66,19 @@ def test_parse_keyed_list():
 
 
 def test_settings_round_trip(tmp_path: Path):
-    settings = AppSettings(last_used_profile="vm-1", recent_profiles=["vm-1"])
+    settings = AppSettings(
+        last_used_profile="vm-1",
+        recent_profiles=["vm-1"],
+        auto_launch_enabled=True,
+        auto_launch_profile="vm-1",
+    )
     path = tmp_path / "settings.toml"
     save_settings(type("P", (), {"settings_file": path})(), settings)
     loaded = load_settings(path)
     assert loaded.last_used_profile == "vm-1"
     assert loaded.recent_profiles == ["vm-1"]
+    assert loaded.auto_launch_enabled is True
+    assert loaded.auto_launch_profile == "vm-1"
 
 
 def test_profile_round_trip(tmp_path: Path):
@@ -121,6 +128,7 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
         qmp_socket=tmp_path / "qmp.sock",
         pidfile=tmp_path / "qemu.pid",
         log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
     )
     command = build_command(profile, fake_caps(), artifacts, host_platform="linux")
     cmd = " ".join(command)
@@ -157,6 +165,7 @@ def test_macos_command_uses_macos_backends(tmp_path: Path):
         qmp_socket=tmp_path / "qmp.sock",
         pidfile=tmp_path / "qemu.pid",
         log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
     )
     command = build_command(profile, caps, artifacts, host_platform="darwin")
     cmd = " ".join(command)
@@ -183,10 +192,32 @@ def test_non_primary_display_uses_post_launch_fullscreen(tmp_path: Path):
         qmp_socket=tmp_path / "qmp.sock",
         pidfile=tmp_path / "qemu.pid",
         log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
     )
     command = build_command(profile, fake_caps(), artifacts, host_platform="linux")
     assert "-full-screen" not in command
     assert should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen) is False
+
+
+def test_missing_snapshot_does_not_emit_loadvm(tmp_path: Path):
+    disk = tmp_path / "disk.qcow2"
+    disk.write_text("", encoding="utf-8")
+    qemu_bin = tmp_path / "qemu-system-x86_64"
+    qemu_bin.write_text("", encoding="utf-8")
+    profile = VMProfile(
+        qemu_executable=str(qemu_bin),
+        disk_path=str(disk),
+        auto_resume=True,
+        resume_snapshot_name="resume",
+    )
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
+    )
+    command = build_command(profile, fake_caps(), artifacts, host_platform="linux", restore_state=True)
+    assert "-loadvm" not in command
 
 
 def test_virtiofs_requires_socket(tmp_path: Path):
@@ -202,6 +233,7 @@ def test_virtiofs_requires_socket(tmp_path: Path):
         qmp_socket=tmp_path / "qmp.sock",
         pidfile=tmp_path / "qemu.pid",
         log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
     )
     with pytest.raises(Exception):
         build_command(profile, fake_caps(has_virtiofsd=True), artifacts, host_platform="linux")
@@ -218,6 +250,7 @@ def test_shared_folder_must_exist(tmp_path: Path):
         qmp_socket=tmp_path / "qmp.sock",
         pidfile=tmp_path / "qemu.pid",
         log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
     )
     with pytest.raises(Exception):
         build_command(profile, fake_caps(), artifacts, host_platform="linux")
