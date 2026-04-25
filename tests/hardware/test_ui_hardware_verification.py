@@ -1,9 +1,9 @@
+import json
 import os
+import socket
 import subprocess
 import sys
 import time
-import json
-import socket
 
 
 def run_applescript(script):
@@ -19,7 +19,7 @@ def check_qmp_running(qmp_path):
         client.connect(str(qmp_path))
         
         # Read greeting
-        greeting = client.recv(1024)
+        client.recv(1024)
         
         # Capability negotiation
         client.sendall(json.dumps({"execute": "qmp_capabilities"}).encode())
