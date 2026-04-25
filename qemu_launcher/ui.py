@@ -752,10 +752,10 @@ class MainWindow(QMainWindow):
             )
             self.display_info_label.setText(display_note)
             self.readiness_summary_label.setText(
-                "Ready to launch." if not issues else f"Needs attention before launch: {len(issues)} item(s)."
+                "READY" if not issues else "ATTENTION REQUIRED"
             )
             self.readiness_issues_label.setText(
-                _rich_list("Fix Before Launch", issues, "The profile has the required basics.")
+                _rich_list("Action Required", issues, "The profile is correctly configured for launch.")
             )
             self.highlights_label.setText(
                 _rich_list(
@@ -778,7 +778,7 @@ class MainWindow(QMainWindow):
             self.sharing_info_label.setText(str(exc))
             self.display_info_label.setText(str(exc))
             self.readiness_summary_label.setText("Needs attention before launch.")
-            self.readiness_issues_label.setText(_rich_list("Fix Before Launch", [str(exc)], ""))
+            self.readiness_issues_label.setText(_rich_list("Action Required", [str(exc)], ""))
             self.highlights_label.setText(
                 _rich_list("Configured Experience", [], "Preview becomes richer once the required paths are set.")
             )
