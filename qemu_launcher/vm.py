@@ -49,7 +49,13 @@ class VMController:
         self.artifacts.log_file.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts.stderr_log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        command = build_command(self.profile, self.capabilities, self.artifacts, host_platform=self.host_platform, restore_state=restore_state)
+        command = build_command(
+            self.profile,
+            self.capabilities,
+            self.artifacts,
+            host_platform=self.host_platform,
+            restore_state=restore_state
+        )
         self.last_command = command
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
             self.process = subprocess.Popen(
@@ -65,7 +71,9 @@ class VMController:
 
     def preview_command(self) -> list[str]:
         """Return the command line that would be used to launch the VM."""
-        return build_command(self.profile, self.capabilities, self.artifacts, host_platform=self.host_platform, restore_state=True)
+        return build_command(
+            self.profile, self.capabilities, self.artifacts, host_platform=self.host_platform, restore_state=True
+        )
 
     def is_running(self) -> bool:
         """Check if the VM is currently running."""
@@ -228,7 +236,7 @@ def build_command(
         # or use a simple heuristic. Real production would use qemu-img info.
         if disk_path.lower().endswith(".qcow2"):
             disk_format = "qcow2"
-            
+
     command.extend(["-device", "virtio-blk-pci,drive=disk0"])
     command.extend(["-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}"])
 
@@ -266,7 +274,7 @@ def _audio_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> li
         driver = "pa"
     else:
         driver = list(caps.audio_drivers)[0] if caps.audio_drivers else "none"
-        
+
     return ["-audiodev", f"{driver},id=snd0", "-device", "virtio-sound-pci,audiodev=snd0"]
 
 
@@ -274,7 +282,7 @@ def _sharing_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
     mode, mount_help = resolve_sharing(profile, caps)
     if mode == "none":
         return []
-        
+
     tag = profile.mount_tag or "host_share"
     if mode == "9p":
         return [
@@ -287,13 +295,13 @@ def _sharing_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
 def _network_mode(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     if profile.network_mode != "auto":
         return profile.network_mode
-        
+
     if platform == "darwin":
         return "vmnet-shared"
-    
+
     if "passt" in caps.netdev_backends:
         return "passt"
-        
+
     return "user"
 
 
@@ -304,12 +312,12 @@ def _network_requires_elevation(profile: VMProfile, caps: QemuCapabilities, plat
 
 def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
     mode = _network_mode(profile, caps, platform)
-    
+
     if platform == "darwin" and mode in {"vmnet-shared", "vmnet-bridged"}:
         helper_path = "/usr/local/bin/qemu-launcher-helper"
         # In unit tests, we want to verify the command even if the helper isn't installed locally
         is_test = os.environ.get("QEMU_LAUNCHER_TEST") == "1"
-        
+
         if is_test or os.path.exists(helper_path):
             # 1. Start the helper as a background process to initialize the FD
             if not is_test:
@@ -349,11 +357,11 @@ def _ensure_helper_installed() -> bool:
 
     # Try to find the bundled helper in every possible location
     search_paths = []
-    
+
     # 1. PyInstaller temporary directory
     if hasattr(sys, "_MEIPASS"):
         search_paths.append(Path(sys._MEIPASS) / "qemu-launcher-helper")
-    
+
     # 2. macOS bundle Resources (via NSBundle)
     try:
         from AppKit import NSBundle
@@ -367,7 +375,7 @@ def _ensure_helper_installed() -> bool:
     exe_dir = Path(sys.executable).parent
     search_paths.append(exe_dir / "qemu-launcher-helper")
     search_paths.append(exe_dir.parent / "Resources" / "qemu-launcher-helper")
-    
+
     # 4. Relative to current file (dev mode)
     search_paths.append(Path(__file__).parent.parent / "qemu-launcher-helper")
 
@@ -387,7 +395,9 @@ def _ensure_helper_installed() -> bool:
         return False
 
     # Perform the installation via osascript with administrator privileges
-    script = f'do shell script "mkdir -p /usr/local/bin && cp \'{bundled_helper}\' \'{target_path}\' && chown root \'{target_path}\' && chmod 4755 \'{target_path}\'" with administrator privileges'
+    cmd = f"mkdir -p /usr/local/bin && cp '{bundled_helper}' '{target_path}' && " \
+          f"chown root '{target_path}' && chmod 4755 '{target_path}'"
+    script = f'do shell script "{cmd}" with administrator privileges'
     try:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
         return True
@@ -410,7 +420,7 @@ def profile_readiness(
     # Add positive highlights for the user to see everything is working
     if profile.enable_fullscreen and profile.target_display_name:
         highlights.append(f"Fullscreen target: {profile.target_display_name}")
-    
+
     if profile.shared_dir_path and os.path.exists(profile.shared_dir_path):
         highlights.append(f"Shared folder: {os.path.basename(profile.shared_dir_path)}")
 
@@ -431,7 +441,7 @@ def resolve_sharing(profile: VMProfile, caps: QemuCapabilities) -> tuple[str, st
     """Return (backend_name, mount_help_text)."""
     if not profile.shared_dir_path:
         return "none", ""
-    
+
     tag = profile.mount_tag or "host_share"
     mount_help = f"mount -t 9p -o trans=virtio {tag} /mnt/{tag}"
     return "9p", mount_help

@@ -17,19 +17,19 @@ def check_qmp_running(qmp_path):
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.settimeout(2.0)
         client.connect(str(qmp_path))
-        
+
         # Read greeting
         client.recv(1024)
-        
+
         # Capability negotiation
         client.sendall(json.dumps({"execute": "qmp_capabilities"}).encode())
         resp = client.recv(1024)
-        
+
         # Check status
         client.sendall(json.dumps({"execute": "query-status"}).encode())
         resp = client.recv(1024)
         status = json.loads(resp.decode())
-        
+
         running = status.get("return", {}).get("running", False)
         client.close()
         return running
@@ -40,7 +40,7 @@ def check_qmp_running(qmp_path):
 
 def test_ui_workflow():
     print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
-    
+
     app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
     if not os.path.exists(app_path):
         print(f"ERROR: App bundle not found at {app_path}")
@@ -51,7 +51,7 @@ def test_ui_workflow():
     import platform as py_platform
     host_arch = py_platform.machine() # 'arm64' or 'x86_64'
     native_qemu = "aarch64" if host_arch == "arm64" else "x86_64"
-    
+
     def get_cirros(arch):
         filename = f"cirros-0.6.2-{arch}-disk.img"
         local_path = f"/tmp/{filename}"
@@ -72,7 +72,7 @@ def test_ui_workflow():
         if not os.path.exists(qemu_bin):
              qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
         machine = "virt" if arch == "aarch64" else "q35"
-        
+
         content = f"""
 name = "{name}"
 architecture = "{arch}"
@@ -125,11 +125,11 @@ auto_launch_enabled = false
     end tell
     '''
     run_applescript(script)
-    
+
     # 6. Verify VM Deep Boot
     print("-> Waiting for VM stabilization...")
     time.sleep(10)
-    
+
     qmp_path = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher/profiles/Smoke Test/qmp.sock"
     if check_qmp_running(qmp_path):
         print("SUCCESS: VM is running and executing instructions (QMP verified).")

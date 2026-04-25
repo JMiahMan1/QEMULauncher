@@ -362,7 +362,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
 
         intro = QLabel(
-            "Set up two things first for a natural VM experience: fullscreen on the right display and a shared folder the guest can mount."
+            "Set up two things first for a natural VM experience: "
+            "fullscreen on the right display and a shared folder the guest can mount."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -446,7 +447,8 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         root_layout = QVBoxLayout(tab)
         intro = QLabel(
-            "Use fullscreen for the most natural feel. Primary-display fullscreen is direct; non-primary placement depends on the host window manager."
+            "Use fullscreen for the most natural feel. Primary-display fullscreen is direct; "
+            "non-primary placement depends on the host window manager."
         )
         intro.setWordWrap(True)
         root_layout.addWidget(intro)
@@ -478,7 +480,8 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         root_layout = QVBoxLayout(tab)
         intro = QLabel(
-            "Shared folders are one of the main flows. Pick a host folder here, then run the guest mount command shown below."
+            "Shared folders are one of the main flows. Pick a host folder here, "
+            "then run the guest mount command shown below."
         )
         intro.setWordWrap(True)
         root_layout.addWidget(intro)
@@ -767,11 +770,12 @@ class MainWindow(QMainWindow):
             self.next_steps_label.setText(
                 _rich_list("Notes", notes, "Save the profile, then launch when the profile is ready.")
             )
+            displays_text = ",".join(sorted(caps.displays)) or "-"
+            audio_text = ",".join(sorted(caps.audio_drivers)) or "-"
+            net_text = ",".join(sorted(caps.netdev_backends)) or "-"
             self.status_label.setText(
-                f"{caps.version or 'QEMU not found'} | state={running} | displays={','.join(sorted(caps.displays)) or '-'} | "
-                f"audio={','.join(sorted(caps.audio_drivers)) or '-'} | "
-                f"net={','.join(sorted(caps.netdev_backends)) or '-'} | "
-                f"share={sharing_mode}"
+                f"{caps.version or 'QEMU not found'} | state={running} | displays={displays_text} | "
+                f"audio={audio_text} | net={net_text} | share={sharing_mode}"
             )
         except Exception as exc:
             self.preview_edit.setPlainText(str(exc))

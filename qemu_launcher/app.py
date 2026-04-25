@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     # Single instance lock for the UI
     paths = AppPaths()
     lock_file = paths.runtime_dir / "app.lock"
-    
+
     # Use a file lock to prevent multiple instances
     import fcntl
     try:
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         # Instantiate the controller with correct dependencies
         from .capabilities import probe_qemu
         from .vm import RuntimeArtifacts
-        
+
         capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
             qmp_socket=paths.qmp_socket(profile.name),
