@@ -43,7 +43,12 @@ class VMController:
         if _network_requires_elevation(self.profile, self.capabilities, self.host_platform):
             _ensure_helper_installed()
 
+        # Ensure all artifact parent directories exist
         self.artifacts.qmp_socket.parent.mkdir(parents=True, exist_ok=True)
+        self.artifacts.pidfile.parent.mkdir(parents=True, exist_ok=True)
+        self.artifacts.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.artifacts.stderr_log_file.parent.mkdir(parents=True, exist_ok=True)
+
         command = build_command(self.profile, self.capabilities, self.artifacts, host_platform=self.host_platform, restore_state=restore_state)
         self.last_command = command
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
