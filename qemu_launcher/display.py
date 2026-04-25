@@ -97,6 +97,10 @@ def arrange_window(pid: int, target_display_name: str | None, fullscreen: bool) 
     return None
 
 
+def set_fullscreen(pid: int, target_display_name: str | None, enabled: bool) -> str | None:
+    return arrange_window(pid, target_display_name, enabled)
+
+
 def _normalize_name(name: str | None) -> str:
     if not name:
         return ""
@@ -213,15 +217,27 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     if window is None:
         return "Unable to locate the QEMU window for display placement."
 
+    # Give the window a moment to settle before moving it
+    time.sleep(0.5)
+
     position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x + 40, target.y + 40))
     size = AXValueCreate(
         kAXValueCGSizeType,
         CGSizeMake(max(target.width - 80, 640), max(target.height - 80, 480)),
     )
-    AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
-    AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
-    if fullscreen:
-        AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
+
+    # Attempt to move and resize with retries
+    for _ in range(3):
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
+        if fullscreen:
+            # Fullscreen often needs to be set after the window is on the correct screen
+            time.sleep(0.2)
+            AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
+        
+        # Verify placement (optional, but let's at least wait a bit between attempts)
+        time.sleep(0.3)
+
     return None
 
 

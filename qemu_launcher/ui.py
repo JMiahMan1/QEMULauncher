@@ -63,6 +63,73 @@ def _rich_list(title: str, items: list[str], empty_text: str) -> str:
     return f"<b>{title}</b><ul>{rows}</ul>"
 
 
+class FullscreenOverlay(QWidget):
+    """A floating menu that appears when hovering at the top of the screen."""
+
+    def __init__(self, on_exit_fs: callable) -> None:
+        super().__init__()
+        self.on_exit_fs = on_exit_fs
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(180, 50)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        self.button = QPushButton("Exit Fullscreen")
+        self.button.setCursor(Qt.PointingHandCursor)
+        self.button.clicked.connect(self._handle_click)
+        self.button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: rgba(30, 30, 30, 220);
+                color: #eee;
+                border: 1px solid #444;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: rgba(50, 50, 50, 240);
+                border: 1px solid #666;
+                color: #fff;
+            }
+        """
+        )
+        layout.addWidget(self.button)
+
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.hide)
+
+    def _handle_click(self) -> None:
+        self.hide()
+        self.on_exit_fs()
+
+    def show_at_top(self) -> None:
+        screen = QApplication.primaryScreen().geometry()
+        self.move(screen.center().x() - self.width() // 2, 0)
+        self.show()
+        self._hide_timer.start(4000)
+
+
+class HotEdgeTrigger(QWidget):
+    """A tiny transparent strip at the top of the screen to detect mouse hover."""
+
+    def __init__(self, on_trigger: callable) -> None:
+        super().__init__()
+        self.on_trigger = on_trigger
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(300, 4)
+        # Transparent but captures mouse
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
+
+    def enterEvent(self, event) -> None:  # type: ignore[override]
+        self.on_trigger()
+        super().enterEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, paths: AppPaths) -> None:
         super().__init__()
@@ -74,6 +141,11 @@ class MainWindow(QMainWindow):
         self._startup_launch_done = False
         self.setWindowTitle(APP_NAME)
         self.resize(1220, 860)
+
+        # Overlay Escapes
+        self.overlay = FullscreenOverlay(self._exit_fullscreen)
+        self.hot_edge = HotEdgeTrigger(self.overlay.show_at_top)
+
         self._build_ui()
         self._restore_window_state()
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
@@ -135,6 +207,10 @@ class MainWindow(QMainWindow):
         snapshot_action = QAction("Save Snapshot", self)
         snapshot_action.triggered.connect(self._save_vm_state)
         toolbar.addAction(snapshot_action)
+
+        exit_fs_action = QAction("Exit Fullscreen", self)
+        exit_fs_action.triggered.connect(self._exit_fullscreen)
+        toolbar.addAction(exit_fs_action)
 
         status_action = QAction("Check Status", self)
         status_action.triggered.connect(self._show_vm_status)
@@ -621,6 +697,12 @@ class MainWindow(QMainWindow):
             if controller.display_note:
                 message = f"{message}\n{controller.display_note}"
             self.status_label.setText(message)
+
+            # Show the hot edge trigger if we are in fullscreen
+            if profile.enable_fullscreen:
+                screen_geom = QApplication.primaryScreen().geometry()
+                self.hot_edge.move(screen_geom.center().x() - self.hot_edge.width() // 2, 0)
+                self.hot_edge.show()
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
@@ -656,6 +738,23 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Save State Failed", str(exc))
 
+    def _exit_fullscreen(self) -> None:
+        profile = self._current_profile()
+        controller = VMController(self.paths, profile)
+        pid = controller._read_pid()
+        if not pid:
+            self.status_label.setText("No running VM found to exit fullscreen.")
+            return
+        
+        from .display import set_fullscreen
+        note = set_fullscreen(pid, profile.target_display_name, enabled=False)
+        if note:
+            self.status_label.setText(note)
+        else:
+            self.status_label.setText(f"Attempted to exit fullscreen for {profile.name}")
+            # Hide hot edge if we successfully exited
+            self.hot_edge.hide()
+
     def _stop_profile(self) -> None:
         if not self._save_current_profile():
             return
@@ -664,6 +763,7 @@ class MainWindow(QMainWindow):
         try:
             controller.stop(save_state=True)
             self.status_label.setText(f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'")
+            self.hot_edge.hide()
         except Exception as exc:
             QMessageBox.critical(self, "Stop Failed", str(exc))
 
@@ -683,6 +783,7 @@ class MainWindow(QMainWindow):
             try:
                 controller.stop(save_state=True)
                 self.status_label.setText(f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'")
+                self.hot_edge.hide()
                 return QMessageBox.Yes
             except Exception as exc:
                 QMessageBox.critical(self, "Stop Failed", str(exc))

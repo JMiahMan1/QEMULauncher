@@ -498,6 +498,7 @@ class VMController:
             self.artifacts.stderr_log_file.unlink()
         self._start_virtiofsd()
         command = build_command(self.profile, self.capabilities, self.artifacts, restore_state=True)
+        self.last_command = command
         if _network_requires_elevation(self.profile, self.capabilities, self.host_platform) and os.geteuid() != 0:
             self._launch_with_privileges(command)
             self.process = None
@@ -538,7 +539,7 @@ class VMController:
             message = (result.stderr or result.stdout or "Administrator-approved launch failed.").strip()
             raise RuntimeError(message)
 
-    def _ensure_started(self, timeout: float = 4.0) -> None:
+    def _ensure_started(self, timeout: float = 10.0) -> None:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.artifacts.qmp_socket.exists() or self.artifacts.pidfile.exists():
@@ -554,6 +555,8 @@ class VMController:
         stderr_text = _tail_text(self.artifacts.stderr_log_file)
         qemu_log_text = _tail_text(self.artifacts.log_file)
         parts = ["QEMU exited before the VM became ready."]
+        if self.last_command:
+            parts.append(f"command: {shell_join(self.last_command)}")
         if stderr_text:
             parts.append(f"stderr: {stderr_text}")
         if qemu_log_text:
@@ -563,9 +566,6 @@ class VMController:
         return "\n".join(parts)
 
     def _start_display_arrangement(self) -> None:
-        pid = self.process.pid if self.process and self.process.poll() is None else self._read_pid()
-        if not pid:
-            return
         if not self.profile.target_display_name or should_qemu_handle_fullscreen(
             self.profile.target_display_name, self.profile.enable_fullscreen
         ):
@@ -574,6 +574,18 @@ class VMController:
         self.display_note = f"Placing VM on {self.profile.target_display_name}; host accessibility/window-control permission may be required."
 
         def worker() -> None:
+            # Wait for PID if not available yet (race condition with pidfile writing)
+            pid = self.process.pid if self.process and self.process.poll() is None else None
+            deadline = time.time() + 5.0
+            while not pid and time.time() < deadline:
+                pid = self._read_pid()
+                if pid:
+                    break
+                time.sleep(0.2)
+            
+            if not pid:
+                return
+
             note = arrange_window(
                 pid,
                 self.profile.target_display_name,
