@@ -254,8 +254,44 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                             if m_title and ("Full Screen" in m_title or "Fullscreen" in m_title):
                                 AXUIElementPerformAction(m_item, kAXPressAction)
                                 return None
+    else:
+        # If we want to exit fullscreen on macOS
+        AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, False)
 
     return None
+
+
+def set_fullscreen(pid: int, target_display_name: str | None, enabled: bool) -> str | None:
+    if sys.platform == "darwin":
+        return _set_fullscreen_macos(pid, target_display_name, enabled)
+    if sys.platform.startswith("linux"):
+        return _set_fullscreen_linux(pid, enabled)
+    return None
+
+
+def _set_fullscreen_linux(pid: int, enabled: bool) -> str | None:
+    if not _command_exists("wmctrl"):
+        return "Install wmctrl to enable fullscreen control on Linux."
+    window_id = _find_wmctrl_window_id(pid)
+    if not window_id:
+        return "Unable to locate the QEMU window."
+    
+    action = "add" if enabled else "remove"
+    subprocess.run(
+        ["wmctrl", "-i", "-r", window_id, "-b", f"{action},fullscreen"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return None
+
+
+def _set_fullscreen_macos(pid: int, target_display_name: str | None, enabled: bool) -> str | None:
+    # On macOS, we reuse the arrange logic but specifically for the toggle
+    target = resolve_display(target_display_name)
+    if not target:
+        return "Display unavailable."
+    return _arrange_window_macos(pid, target, enabled)
 
 
 def _command_exists(name: str) -> bool:

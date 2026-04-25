@@ -138,6 +138,12 @@ class FullscreenOverlay(QWidget):
         if self.on_exit_fs:
             self.on_exit_fs()
 
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self._handle_click()
+        else:
+            super().keyPressEvent(event)
+
     def show_at_top(self) -> None:
         screens = QGuiApplication.screens()
         if not self.target_display_name:
@@ -150,6 +156,7 @@ class FullscreenOverlay(QWidget):
         self.move(x, y)
         self.show()
         self.raise_()
+        self.activateWindow() # Try to grab focus for the Esc key
         self._hide_timer.start(4000)
 
 
@@ -197,8 +204,9 @@ class HotEdgeTrigger(QWidget):
             screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
-        width = 400
-        height = 10
+        # On Linux, make it full width to be easier to hit if mouse is weird
+        width = geom.width() if sys.platform.startswith("linux") else 400
+        height = 1 if sys.platform.startswith("linux") else 10 # 1px is enough to trigger but less intrusive
         self.setGeometry(
             geom.x() + (geom.width() - width) // 2,
             geom.y(),
@@ -801,6 +809,12 @@ class MainWindow(QMainWindow):
         if not self._save_current_profile():
             return
         profile = self._current_profile()
+        if profile.enable_fullscreen:
+            self.status_label.setText(
+                "Launching in Fullscreen. Move mouse to top edge or press Ctrl+Alt+G to release mouse."
+            )
+        else:
+            self.status_label.setText(f"Launching {profile.name}...")
         controller = self._create_controller(profile)
         try:
             launched = controller.launch()
