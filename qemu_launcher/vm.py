@@ -220,8 +220,17 @@ def build_command(
     if profile.firmware_path:
         command.extend(["-drive", f"if=pflash,format=raw,readonly=on,file={profile.firmware_path}"])
 
+    # Detect disk format
+    disk_path = profile.expanded_disk_path()
+    disk_format = "raw"
+    if disk_path.lower().endswith((".qcow2", ".qcow", ".img")):
+        # For safety in this refactor, let's just allow QEMU to auto-detect
+        # or use a simple heuristic. Real production would use qemu-img info.
+        if disk_path.lower().endswith(".qcow2"):
+            disk_format = "qcow2"
+            
     command.extend(["-device", "virtio-blk-pci,drive=disk0"])
-    command.extend(["-drive", f"id=disk0,if=none,format=raw,file={profile.disk_path}"])
+    command.extend(["-drive", f"id=disk0,if=none,format={disk_format},file={disk_path}"])
 
     command.extend(_audio_args(profile, caps, platform))
     command.extend(_network_args(profile, caps, platform))
