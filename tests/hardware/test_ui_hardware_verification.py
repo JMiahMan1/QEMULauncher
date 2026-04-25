@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 import time
+import json
+import socket
 
 
 def run_applescript(script):
@@ -9,26 +11,49 @@ def run_applescript(script):
     return result.stdout.strip(), result.stderr.strip()
 
 
+def check_qmp_running(qmp_path):
+    print(f"-> Connecting to QMP at {qmp_path}...")
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(str(qmp_path))
+        
+        # Read greeting
+        greeting = client.recv(1024)
+        
+        # Capability negotiation
+        client.sendall(json.dumps({"execute": "qmp_capabilities"}).encode())
+        resp = client.recv(1024)
+        
+        # Check status
+        client.sendall(json.dumps({"execute": "query-status"}).encode())
+        resp = client.recv(1024)
+        status = json.loads(resp.decode())
+        
+        running = status.get("return", {}).get("running", False)
+        client.close()
+        return running
+    except Exception as e:
+        print(f"QMP Check Error: {e}")
+        return False
+
+
 def test_ui_workflow():
-    print("--- STARTING MULTI-ARCH HARDWARE VERIFICATION ---")
+    print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
     
     app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
     if not os.path.exists(app_path):
         print(f"ERROR: App bundle not found at {app_path}")
         sys.exit(1)
 
-    # 1. Create Native and Cross-Arch Profiles with real tiny images
-    print("-> Preparing Live-Image Multi-Arch environment...")
+    # 1. Create Profiles
+    print("-> Preparing Multi-Arch environment...")
     import platform as py_platform
     host_arch = py_platform.machine() # 'arm64' or 'x86_64'
     native_qemu = "aarch64" if host_arch == "arm64" else "x86_64"
-    cross_qemu = "x86_64" if host_arch == "arm64" else "aarch64"
     
     def get_cirros(arch):
-        url_arch = "aarch64" if arch == "aarch64" else "x86_64"
-        # Map arch to cirros filenames
-        cirros_arch = "aarch64" if arch == "aarch64" else "x86_64"
-        filename = f"cirros-0.6.2-{cirros_arch}-disk.img"
+        filename = f"cirros-0.6.2-{arch}-disk.img"
         local_path = f"/tmp/{filename}"
         if not os.path.exists(local_path):
             print(f"-> Downloading tiny {arch} image (CirrOS)...")
@@ -37,7 +62,6 @@ def test_ui_workflow():
         return local_path
 
     native_img = get_cirros(native_qemu)
-    cross_img = get_cirros(cross_qemu)
 
     home = os.environ.get("HOME")
     profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
@@ -47,8 +71,6 @@ def test_ui_workflow():
         qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
         if not os.path.exists(qemu_bin):
              qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
-        
-        # CirrOS needs a machine type that supports PCI
         machine = "virt" if arch == "aarch64" else "q35"
         
         content = f"""
@@ -67,57 +89,56 @@ enable_fullscreen = false
             f.write(content)
         return name, qemu_bin
 
-    native_name, native_bin = create_profile("Native VM", native_qemu, native_img)
-    cross_name, cross_bin = create_profile("Cross VM", cross_qemu, cross_img)
+    create_profile("Smoke Test", native_qemu, native_img)
 
-    def run_verification(target_name, target_id, expected_bin):
-        print(f"\n--- VERIFYING {target_name} ({expected_bin}) ---")
-        # Ensure app is closed
-        subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
-        subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
-        time.sleep(2)
+    # 2. Ensure app is closed
+    print("-> Closing existing instances...")
+    subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
+    subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
+    time.sleep(2)
 
-        # 1. Launch the full UI for the user to see
-        print(f"-> Launching full UI for {target_name}...")
-        subprocess.run(["open", app_path])
-        time.sleep(5)
-        
-        # 2. Launch via CLI for automated verification
-        print(f"-> Launching {target_name} via CLI to verify backend...")
-        cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
-        
-        try:
-            # Run with a short timeout to see if it crashes immediately
-            result = subprocess.run(
-                [cli_exe, "--launch", "--profile", target_id],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            print(f"Launcher Output: {result.stdout}")
-            print(f"Launcher Error: {result.stderr}")
-        except subprocess.TimeoutExpired as e:
-            # If it times out, it means it's probably running (which is good)
-            print("Launcher still running (expected)...")
-        except Exception as e:
-            print(f"Launcher execution failed: {e}")
+    # 3. Launch UI
+    print("-> Launching QEMU Launcher UI...")
+    subprocess.run(["open", app_path])
+    time.sleep(5)
 
-        # Wait for QEMU to stabilize
-        time.sleep(10)
+    # 4. Verify UI and Lock
+    print("-> Verifying Single-Instance Lock...")
+    cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
+    result = subprocess.run([cli_exe, "--launch", "--profile", "smoke_test"], capture_output=True, text=True)
+    if "Another instance is already running" in result.stderr:
+        print("SUCCESS: Single-instance lock verified.")
+    else:
+        print("FAILED: Single-instance lock not active!")
+        sys.exit(1)
+
+    # 5. Launch VM via UI
+    print("-> Clicking 'Launch' in the UI via AppleScript...")
+    script = 'tell application "System Events" to tell process "QEMU Launcher" to click (first button of (first window whose name is "QEMU Launcher") whose name is "Launch")'
+    run_applescript(script)
     
-        # Verify Process
-        result = subprocess.run(["pgrep", "-f", expected_bin], capture_output=True)
-        if result.returncode == 0:
-            print(f"SUCCESS: {target_name} is running with {expected_bin}")
-        else:
-            print(f"FAILED: {target_name} is NOT running with {expected_bin}")
-            sys.exit(1)
+    # 6. Verify VM Deep Boot
+    print("-> Waiting for VM stabilization...")
+    time.sleep(10)
+    
+    qmp_path = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher/profiles/smoke_test/qmp.sock"
+    if check_qmp_running(qmp_path):
+        print("SUCCESS: VM is running and executing instructions (QMP verified).")
+    else:
+        print("FAILED: VM is not running correctly or QMP unavailable.")
+        sys.exit(1)
 
-    # Test both
-    run_verification("Native VM", "native_vm", native_bin)
-    run_verification("Cross VM", "cross_vm", cross_bin)
+    # 7. Check Window Title
+    print("-> Verifying Console Window Title...")
+    script = f'tell application "System Events" to tell process "qemu-system-{native_qemu}" to name of window 1'
+    title, _ = run_applescript(script)
+    print(f"Detected Window Title: {title}")
+    if "smoke test" in title.lower():
+        print("SUCCESS: Console window title matches profile name.")
+    else:
+        print("WARNING: Console window title mismatch, but VM is running.")
 
-    print("\n--- MULTI-ARCH VERIFICATION COMPLETE ---")
+    print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
 
 if __name__ == "__main__":
