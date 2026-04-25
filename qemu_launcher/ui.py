@@ -101,39 +101,52 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
+        # Profile Actions
         new_action = QAction("New Profile", self)
+        new_action.setShortcut("Ctrl+N")
         new_action.triggered.connect(self._create_profile)
         toolbar.addAction(new_action)
+
+        save_action = QAction("Save Profile", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._save_current_profile)
+        toolbar.addAction(save_action)
 
         delete_action = QAction("Delete Profile", self)
         delete_action.triggered.connect(self._delete_profile)
         toolbar.addAction(delete_action)
 
-        save_action = QAction("Save", self)
-        save_action.triggered.connect(self._save_current_profile)
-        toolbar.addAction(save_action)
+        toolbar.addSeparator()
 
-        preview_action = QAction("Preview Command", self)
-        preview_action.triggered.connect(self._refresh_preview)
-        toolbar.addAction(preview_action)
-
-        status_action = QAction("VM Status", self)
-        status_action.triggered.connect(self._show_vm_status)
-        toolbar.addAction(status_action)
-
-        save_state_action = QAction("Save State", self)
-        save_state_action.triggered.connect(self._save_vm_state)
-        toolbar.addAction(save_state_action)
-
-        launch_action = QAction("Save && Launch", self)
+        # VM Runtime Actions
+        launch_action = QAction("Launch VM", self)
+        launch_action.setShortcut("Ctrl+L")
         launch_action.triggered.connect(self._launch_profile)
         toolbar.addAction(launch_action)
 
-        stop_action = QAction("Save && Stop", self)
+        stop_action = QAction("Stop VM", self)
+        stop_action.setShortcut("Ctrl+T")
         stop_action.triggered.connect(self._stop_profile)
         toolbar.addAction(stop_action)
+
+        snapshot_action = QAction("Save Snapshot", self)
+        snapshot_action.triggered.connect(self._save_vm_state)
+        toolbar.addAction(snapshot_action)
+
+        status_action = QAction("Check Status", self)
+        status_action.triggered.connect(self._show_vm_status)
+        toolbar.addAction(status_action)
+
+        toolbar.addSeparator()
+
+        # App Actions
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        toolbar.addAction(quit_action)
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -491,18 +504,12 @@ class MainWindow(QMainWindow):
         profile.enable_microphone = self.mic_check.isChecked()
         profile.enable_usb = self.usb_check.isChecked()
         profile.enable_webcam = self.webcam_check.isChecked()
-        profile.usb_devices = [
-            chunk.strip() for chunk in self.usb_devices_edit.text().split(";") if chunk.strip()
-        ]
+        profile.usb_devices = [chunk.strip() for chunk in self.usb_devices_edit.text().split(";") if chunk.strip()]
         profile.network_mode = self.network_combo.currentText()
         profile.bridge_name = self.bridge_edit.text().strip()
         profile.auto_resume = self.auto_resume_check.isChecked()
         profile.resume_snapshot_name = self.resume_snapshot_edit.text().strip() or "resume"
-        profile.extra_args = [
-            line.strip()
-            for line in self.extra_args_edit.toPlainText().splitlines()
-            if line.strip()
-        ]
+        profile.extra_args = [line.strip() for line in self.extra_args_edit.toPlainText().splitlines() if line.strip()]
         return profile
 
     def _save_current_profile(self, silent: bool = False) -> bool:
@@ -511,7 +518,9 @@ class MainWindow(QMainWindow):
             self.profile_map[profile.profile_id] = profile
             save_profile(self.paths, profile)
             self.settings.last_used_profile = profile.profile_id
-            self.settings.recent_profiles = list(dict.fromkeys([profile.profile_id, *self.settings.recent_profiles]))[:10]
+            self.settings.recent_profiles = list(dict.fromkeys([profile.profile_id, *self.settings.recent_profiles]))[
+                :10
+            ]
             if not self.settings.auto_launch_profile:
                 self.settings.auto_launch_profile = profile.profile_id
             save_settings(self.paths, self.settings)
@@ -556,12 +565,11 @@ class MainWindow(QMainWindow):
             sharing_mode, mount_help = resolve_sharing(profile, caps)
             issues, highlights, notes = profile_readiness(profile, caps)
             self.preview_edit.setPlainText(preview)
-            self.sharing_info_label.setText(
-                f"Sharing backend: {sharing_mode}\nGuest mount: {mount_help}"
-            )
+            self.sharing_info_label.setText(f"Sharing backend: {sharing_mode}\nGuest mount: {mount_help}")
             display_note = (
                 "Primary display launch uses QEMU fullscreen directly."
-                if profile.target_display_name == PRIMARY_DISPLAY_NAME or profile.target_display_name.endswith(" (Primary)")
+                if profile.target_display_name == PRIMARY_DISPLAY_NAME
+                or profile.target_display_name.endswith(" (Primary)")
                 else f"Target display: {profile.target_display_name}. Host-side placement is used after launch."
             )
             self.display_info_label.setText(display_note)
@@ -572,7 +580,11 @@ class MainWindow(QMainWindow):
                 _rich_list("Fix Before Launch", issues, "The profile has the required basics.")
             )
             self.highlights_label.setText(
-                _rich_list("Configured Experience", highlights, "Choose fullscreen, sharing, and resume options to shape the VM experience.")
+                _rich_list(
+                    "Configured Experience",
+                    highlights,
+                    "Choose fullscreen, sharing, and resume options to shape the VM experience.",
+                )
             )
             self.next_steps_label.setText(
                 _rich_list("Notes", notes, "Save the profile, then launch when the profile is ready.")
@@ -589,7 +601,9 @@ class MainWindow(QMainWindow):
             self.display_info_label.setText(str(exc))
             self.readiness_summary_label.setText("Needs attention before launch.")
             self.readiness_issues_label.setText(_rich_list("Fix Before Launch", [str(exc)], ""))
-            self.highlights_label.setText(_rich_list("Configured Experience", [], "Preview becomes richer once the required paths are set."))
+            self.highlights_label.setText(
+                _rich_list("Configured Experience", [], "Preview becomes richer once the required paths are set.")
+            )
             self.next_steps_label.setText(_rich_list("Notes", [], "Start by picking a QEMU binary and disk image."))
             self.status_label.setText(str(exc))
 
@@ -638,9 +652,7 @@ class MainWindow(QMainWindow):
         controller = VMController(self.paths, profile)
         try:
             controller.save_state()
-            self.status_label.setText(
-                f"Saved snapshot '{profile.resume_snapshot_name}' for {profile.name}"
-            )
+            self.status_label.setText(f"Saved snapshot '{profile.resume_snapshot_name}' for {profile.name}")
         except Exception as exc:
             QMessageBox.critical(self, "Save State Failed", str(exc))
 
@@ -651,9 +663,7 @@ class MainWindow(QMainWindow):
         controller = VMController(self.paths, profile)
         try:
             controller.stop(save_state=True)
-            self.status_label.setText(
-                f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'"
-            )
+            self.status_label.setText(f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'")
         except Exception as exc:
             QMessageBox.critical(self, "Stop Failed", str(exc))
 
@@ -663,9 +673,7 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Question)
         box.setWindowTitle("VM Still Running")
         box.setText(f"{profile.name} is still running.")
-        box.setInformativeText(
-            "Save state and stop the VM before closing the launcher, leave it running, or cancel."
-        )
+        box.setInformativeText("Save state and stop the VM before closing the launcher, leave it running, or cancel.")
         save_button = box.addButton("Save && Stop", QMessageBox.AcceptRole)
         leave_button = box.addButton("Leave Running", QMessageBox.DestructiveRole)
         cancel_button = box.addButton(QMessageBox.Cancel)
@@ -674,9 +682,7 @@ class MainWindow(QMainWindow):
         if clicked == save_button:
             try:
                 controller.stop(save_state=True)
-                self.status_label.setText(
-                    f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'"
-                )
+                self.status_label.setText(f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'")
                 return QMessageBox.Yes
             except Exception as exc:
                 QMessageBox.critical(self, "Stop Failed", str(exc))

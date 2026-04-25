@@ -521,7 +521,7 @@ class VMController:
         quoted_command = shell_join(command)
         quoted_stderr = shlex.quote(str(self.artifacts.stderr_log_file))
         script = (
-            'do shell script "nohup '
+            'do shell script "'
             + _osascript_shell_escape(quoted_command)
             + " >/dev/null 2>>"
             + _osascript_shell_escape(quoted_stderr)
@@ -571,9 +571,7 @@ class VMController:
         ):
             self.display_note = None
             return
-        self.display_note = (
-            f"Placing VM on {self.profile.target_display_name}; host accessibility/window-control permission may be required."
-        )
+        self.display_note = f"Placing VM on {self.profile.target_display_name}; host accessibility/window-control permission may be required."
 
         def worker() -> None:
             note = arrange_window(

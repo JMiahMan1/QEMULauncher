@@ -2,7 +2,7 @@
 set -e
 
 # --- Configuration ---
-PYTHON_FILES="qemu_app.py"
+PYTHON_FILES=(qemu_app.py qemu_launcher/)
 
 echo "--- Running Ruff Linter ---"
 if ! command -v ruff &> /dev/null; then
@@ -10,7 +10,8 @@ if ! command -v ruff &> /dev/null; then
     pip install ruff
 fi
 
-ruff check $PYTHON_FILES
+ruff check "${PYTHON_FILES[@]}"
+ruff format --check "${PYTHON_FILES[@]}"
 
 echo "--- Running ShellCheck ---"
 shellcheck test.sh test_build.sh build.sh lint.sh

@@ -50,11 +50,11 @@ def _qgui_application_instance():
 
 def _qt_available_displays(app) -> list[DisplayTarget]:
     displays: list[DisplayTarget] = []
-    primary = app.primaryScreen()
-    for index, screen in enumerate(app.screens()):
+    screens = app.screens()
+    for index, screen in enumerate(screens):
         geometry = screen.geometry()
         name = screen.name() or f"Display {index + 1}"
-        is_primary = screen is primary
+        is_primary = index == 0
         if is_primary:
             name = f"{name} (Primary)"
         displays.append(
@@ -109,18 +109,29 @@ def _available_displays_macos() -> list[DisplayTarget]:
     except Exception:
         return []
     displays: list[DisplayTarget] = []
-    main_screen = AppKit.NSScreen.mainScreen()
-    for index, screen in enumerate(AppKit.NSScreen.screens()):
+    screens = AppKit.NSScreen.screens()
+    if not screens:
+        return []
+    # The first screen in the array is always the 'primary' screen (origin 0,0 with menu bar)
+    primary_screen = screens[0]
+    primary_height = primary_screen.frame().size.height
+
+    for index, screen in enumerate(screens):
         frame = screen.frame()
         name = getattr(screen, "localizedName", lambda: None)() or f"Display {index + 1}"
-        is_primary = screen == main_screen
+        is_primary = screen == primary_screen
         if is_primary:
             name = f"{name} (Primary)"
+
+        # NSScreen uses bottom-left coordinates; AX/Quartz uses top-left.
+        # We convert to top-left relative to the primary screen.
+        y_top_left = int(primary_height - (frame.origin.y + frame.size.height))
+
         displays.append(
             DisplayTarget(
                 name=str(name),
                 x=int(frame.origin.x),
-                y=int(frame.origin.y),
+                y=y_top_left,
                 width=int(frame.size.width),
                 height=int(frame.size.height),
                 primary=is_primary,
