@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
     )
     logger = logging.getLogger("qemu-launcher")
-    logger.info("Application starting...")
+    logger.info(f"Application starting... Logs at: {paths.logs_dir / 'app.log'}")
 
     parser = argparse.ArgumentParser(description="QEMU Launcher")
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved QEMU command and exit")
