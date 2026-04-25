@@ -236,7 +236,10 @@ def load_settings(path: Path) -> AppSettings:
 
 def load_profile(path: Path) -> VMProfile:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return apply_profile_defaults(VMProfile.model_validate(data))
+    profile = VMProfile.model_validate(data)
+    # Ensure profile_id matches filename stem for consistency
+    profile.profile_id = path.stem
+    return apply_profile_defaults(profile)
 
 
 def load_profiles(paths: AppPaths) -> list[VMProfile]:

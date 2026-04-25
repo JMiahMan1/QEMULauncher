@@ -70,21 +70,26 @@ enable_fullscreen = false
     native_name, native_bin = create_profile("Native VM", native_qemu, native_img)
     cross_name, cross_bin = create_profile("Cross VM", cross_qemu, cross_img)
 
-    def run_verification(target_name, expected_bin):
+    def run_verification(target_name, target_id, expected_bin):
         print(f"\n--- VERIFYING {target_name} ({expected_bin}) ---")
         # Ensure app is closed
         subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
         subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
         time.sleep(2)
 
-        # Launch via CLI and capture output to see why it might be failing
-        print(f"-> Launching {target_name} via CLI to verify logic...")
+        # 1. Launch the full UI for the user to see
+        print(f"-> Launching full UI for {target_name}...")
+        subprocess.run(["open", app_path])
+        time.sleep(5)
+        
+        # 2. Launch via CLI for automated verification
+        print(f"-> Launching {target_name} via CLI to verify backend...")
         cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
         
         try:
             # Run with a short timeout to see if it crashes immediately
             result = subprocess.run(
-                [cli_exe, "--launch", "--profile", target_name],
+                [cli_exe, "--launch", "--profile", target_id],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -106,12 +111,11 @@ enable_fullscreen = false
             print(f"SUCCESS: {target_name} is running with {expected_bin}")
         else:
             print(f"FAILED: {target_name} is NOT running with {expected_bin}")
-            # Try to get logs
             sys.exit(1)
 
     # Test both
-    run_verification(native_name, native_bin)
-    run_verification(cross_name, cross_bin)
+    run_verification("Native VM", "native_vm", native_bin)
+    run_verification("Cross VM", "cross_vm", cross_bin)
 
     print("\n--- MULTI-ARCH VERIFICATION COMPLETE ---")
 
