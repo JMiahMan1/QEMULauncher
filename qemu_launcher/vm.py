@@ -7,6 +7,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -616,13 +617,15 @@ class VMController:
             if not pid:
                 return
 
-            note = arrange_window(
-                pid,
-                self.profile.target_display_name,
-                fullscreen=self.profile.enable_fullscreen,
+            # 2. Arrange the window
+            # If we used sudo, we need to perform the arrangement with elevated privileges too
+            # to avoid macOS/Linux security blocks on window management.
+            is_elevated = _network_requires_elevation(self.profile, self.capabilities, sys.platform)
+            error = arrange_window(
+                pid, self.profile.target_display_name, self.profile.enable_fullscreen, elevated=is_elevated
             )
-            if note:
-                self.display_note = note
+            if error:
+                self.display_note = f"Placement note: {error}"
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -87,14 +87,14 @@ def resolve_display(name: str | None) -> DisplayTarget | None:
     return next((display for display in displays if display.primary), displays[0])
 
 
-def arrange_window(pid: int, target_display_name: str | None, fullscreen: bool) -> str | None:
+def arrange_window(pid: int, target_display_name: str | None, fullscreen: bool, elevated: bool = False) -> str | None:
     target = resolve_display(target_display_name)
     if not target:
         return "Display placement unavailable."
     if sys.platform == "darwin":
-        return _arrange_window_macos(pid, target, fullscreen)
+        return _arrange_window_macos(pid, target, fullscreen, elevated)
     if sys.platform.startswith("linux"):
-        return _arrange_window_linux(pid, target, fullscreen)
+        return _arrange_window_linux(pid, target, fullscreen, elevated)
     return None
 
 
@@ -144,26 +144,30 @@ def _available_displays_macos() -> list[DisplayTarget]:
     return displays
 
 
-def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
+def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool, elevated: bool = False) -> str | None:
     if not _command_exists("wmctrl"):
         return "Install wmctrl to enable non-primary display placement on Linux."
     window_id = _find_wmctrl_window_id(pid)
     if not window_id:
         return "Unable to locate the QEMU window for display placement."
+
+    cmd_prefix = ["sudo"] if elevated else []
+
     x = target.x + 40
     y = target.y + 40
     width = max(target.width - 80, 640)
     height = max(target.height - 80, 480)
+
     subprocess.run(
-        ["wmctrl", "-i", "-r", window_id, "-e", f"0,{x},{y},{width},{height}"],
+        cmd_prefix + ["wmctrl", "-i", "-r", window_id, "-e", f"0,{x},{y},{width},{height}"],
         check=False,
         capture_output=True,
         text=True,
     )
-    subprocess.run(["wmctrl", "-i", "-a", window_id], check=False, capture_output=True, text=True)
+    subprocess.run(cmd_prefix + ["wmctrl", "-i", "-a", window_id], check=False, capture_output=True, text=True)
     if fullscreen:
         subprocess.run(
-            ["wmctrl", "-i", "-r", window_id, "-b", "add,fullscreen"],
+            cmd_prefix + ["wmctrl", "-i", "-r", window_id, "-b", "add,fullscreen"],
             check=False,
             capture_output=True,
             text=True,
@@ -183,7 +187,24 @@ def _find_wmctrl_window_id(pid: int, timeout: float = 10.0) -> str | None:
     return None
 
 
-def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
+def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, elevated: bool = False) -> str | None:
+    if elevated:
+        # If the window is root-owned, standard AX calls from a user process are blocked.
+        # We must use the privileged system path (System Events) to move it.
+        # Since we already have sudo authority for the VM, this will be seamless.
+        script = f"""
+        tell application "System Events"
+            set qemuWin to first window of (first process whose unix id is {pid})
+            set position of qemuWin to {{ {target.x}, {target.y} }}
+            set size of qemuWin to {{ {target.width}, {target.height} }}
+        end tell
+        """
+        try:
+            subprocess.run(["sudo", "osascript", "-e", script], check=True, capture_output=True)
+            return None
+        except Exception as e:
+            return f"Elevated placement failed: {e}"
+
     try:
         from ApplicationServices import (
             AXIsProcessTrusted,
