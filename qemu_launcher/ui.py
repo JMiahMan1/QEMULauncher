@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
         """Centralized factory for VMController with correct dependencies."""
         from .capabilities import probe_qemu
         from .vm import RuntimeArtifacts
-        capabilities = probe_qemu(self.paths.qemu_bin)
+        capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
             qmp_socket=self.paths.qmp_socket(profile.name),
             pidfile=self.paths.pid_file(profile.name),
