@@ -525,7 +525,7 @@ class VMController:
             + _osascript_shell_escape(quoted_command)
             + " >/dev/null 2>>"
             + _osascript_shell_escape(quoted_stderr)
-            + ' &" with administrator privileges'
+            + ' </dev/null &" with administrator privileges'
         )
         result = subprocess.run(
             ["osascript", "-e", script],
