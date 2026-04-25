@@ -322,9 +322,11 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
             # 1. Start the helper as a background process to initialize the FD
             if not is_test:
                 arg = "shared" if mode == "vmnet-shared" else "bridged"
-                if mode == "vmnet-bridged" and profile.bridge_name:
+                raw_interface = profile.bridge_interface.split()[0] if profile.bridge_interface else ""
+                
+                if mode == "vmnet-bridged" and raw_interface:
                     subprocess.Popen(
-                        [helper_path, arg, profile.bridge_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        [helper_path, arg, raw_interface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                     )
                 else:
                     subprocess.Popen([helper_path, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

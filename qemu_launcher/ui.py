@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .capabilities import find_default_qemu
+from .capabilities import detect_network_interfaces, find_default_qemu
 from .config import (
     APP_AUTHOR,
     APP_NAME,
@@ -531,14 +531,16 @@ class MainWindow(QMainWindow):
         self.network_combo = QComboBox()
         self.network_combo.addItems(["auto", "user", "passt", "bridge", "vmnet-shared", "vmnet-bridged"])
         self.network_combo.currentTextChanged.connect(self._refresh_preview)
-        self.bridge_edit = QLineEdit()
-        self.bridge_edit.textChanged.connect(self._refresh_preview)
+        self.bridge_combo = QComboBox()
+        self.bridge_combo.setEditable(True)
+        self.bridge_combo.addItems(detect_network_interfaces())
+        self.bridge_combo.currentTextChanged.connect(self._refresh_preview)
         self.auto_resume_check = QCheckBox("Save snapshot and resume on next launch")
         self.auto_resume_check.stateChanged.connect(self._refresh_preview)
         self.resume_snapshot_edit = QLineEdit()
         self.resume_snapshot_edit.textChanged.connect(self._refresh_preview)
         layout.addRow("Network Mode", self.network_combo)
-        layout.addRow("Bridge / Interface", self.bridge_edit)
+        layout.addRow("Bridge / Interface", self.bridge_combo)
         layout.addRow(self.auto_resume_check)
         layout.addRow("Snapshot Name", self.resume_snapshot_edit)
         return tab
@@ -639,6 +641,7 @@ class MainWindow(QMainWindow):
         self.arch_combo.setCurrentText(profile.architecture)
         self.qemu_edit.setText(profile.qemu_executable)
         self.disk_edit.setText(profile.disk_path)
+        self.bridge_combo.setCurrentText(profile.bridge_interface or "")
         self.firmware_edit.setText(profile.firmware_path)
         self.memory_spin.setValue(profile.memory_mib)
         self.cpu_spin.setValue(profile.cpu_cores)
@@ -671,6 +674,7 @@ class MainWindow(QMainWindow):
         profile.architecture = self.arch_combo.currentText()
         profile.qemu_executable = self.qemu_edit.text().strip()
         profile.disk_path = self.disk_edit.text().strip()
+        profile.bridge_interface = self.bridge_combo.currentText().strip()
         profile.firmware_path = self.firmware_edit.text().strip()
         profile.memory_mib = self.memory_spin.value()
         profile.cpu_cores = self.cpu_spin.value()

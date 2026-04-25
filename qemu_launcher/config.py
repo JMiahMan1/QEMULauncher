@@ -131,7 +131,7 @@ class VMProfile(BaseModel):
     sharing_backend: str = "auto"
     mount_tag: str = "host_share"
     network_mode: str = "auto"
-    bridge_name: str = ""
+    bridge_interface: str = ""
     enable_audio: bool = True
     enable_microphone: bool = False
     enable_usb: bool = False
@@ -199,7 +199,7 @@ def write_profile(profile: VMProfile, path: Path) -> None:
         f"sharing_backend = {_toml_quote(profile.sharing_backend)}",
         f"mount_tag = {_toml_quote(profile.mount_tag)}",
         f"network_mode = {_toml_quote(profile.network_mode)}",
-        f"bridge_name = {_toml_quote(profile.bridge_name)}",
+        f"bridge_interface = {_toml_quote(profile.bridge_interface)}",
         f"enable_audio = {'true' if profile.enable_audio else 'false'}",
         f"enable_microphone = {'true' if profile.enable_microphone else 'false'}",
         f"enable_usb = {'true' if profile.enable_usb else 'false'}",
@@ -260,7 +260,7 @@ def _legacy_to_profile(data: dict[str, Any]) -> VMProfile:
         shared_dir_path=data.get("shared_dir_path", ""),
         mount_tag=data.get("mount_tag", "host_share"),
         network_mode=data.get("network_mode", "auto"),
-        bridge_name=data.get("bridge_name", ""),
+        bridge_interface=data.get("bridge_interface", data.get("bridge_name", "")),
         enable_microphone=_legacy_bool(data.get("enable_microphone", False)),
         enable_webcam=_legacy_bool(data.get("enable_webcam", False)),
         enable_fullscreen=_legacy_bool(data.get("enable_fullscreen", True)),
