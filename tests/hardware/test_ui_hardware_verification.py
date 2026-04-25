@@ -67,7 +67,7 @@ def test_ui_workflow():
     profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
     os.makedirs(profiles_dir, exist_ok=True)
 
-    def create_profile(name, arch, disk):
+    def create_profile(name, arch, disk, fullscreen=False, display=""):
         qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
         if not os.path.exists(qemu_bin):
              qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
@@ -83,13 +83,15 @@ memory_mib = 512
 cpu_cores = 1
 network_mode = "user"
 enable_audio = false
-enable_fullscreen = false
+enable_fullscreen = {"true" if fullscreen else "false"}
+target_display_name = "{display}"
 """
         with open(f"{profiles_dir}/{name.lower().replace(' ', '_')}.toml", "w") as f:
             f.write(content)
         return name, qemu_bin
 
-    create_profile("Smoke Test", native_qemu, native_img)
+    # 1. Create a Fullscreen Smoke Test Profile on the secondary monitor (VG248)
+    create_profile("Smoke Test", native_qemu, native_img, fullscreen=True, display="VG248")
 
     # 2. Update settings.toml to point to smoke_test
     print("-> Seeding settings.toml with 'smoke_test'...")
