@@ -17,31 +17,46 @@ def test_ui_workflow():
         print(f"ERROR: App bundle not found at {app_path}")
         sys.exit(1)
 
-    # 1. Create Native and Cross-Arch Profiles
-    print("-> Preparing Multi-Arch environment...")
+    # 1. Create Native and Cross-Arch Profiles with real tiny images
+    print("-> Preparing Live-Image Multi-Arch environment...")
     import platform as py_platform
     host_arch = py_platform.machine() # 'arm64' or 'x86_64'
     native_qemu = "aarch64" if host_arch == "arm64" else "x86_64"
     cross_qemu = "x86_64" if host_arch == "arm64" else "aarch64"
     
-    test_disk = "/tmp/smoke.qcow2"
-    if not os.path.exists(test_disk):
-        subprocess.run(["qemu-img", "create", "-f", "qcow2", test_disk, "1M"], capture_output=True)
+    def get_cirros(arch):
+        url_arch = "aarch64" if arch == "aarch64" else "x86_64"
+        # Map arch to cirros filenames
+        cirros_arch = "aarch64" if arch == "aarch64" else "x86_64"
+        filename = f"cirros-0.6.2-{cirros_arch}-disk.img"
+        local_path = f"/tmp/{filename}"
+        if not os.path.exists(local_path):
+            print(f"-> Downloading tiny {arch} image (CirrOS)...")
+            url = f"https://github.com/cirros-dev/cirros/releases/download/0.6.2/{filename}"
+            subprocess.run(["curl", "-L", "-o", local_path, url], capture_output=True)
+        return local_path
+
+    native_img = get_cirros(native_qemu)
+    cross_img = get_cirros(cross_qemu)
 
     home = os.environ.get("HOME")
     profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
     os.makedirs(profiles_dir, exist_ok=True)
 
-    def create_profile(name, arch):
+    def create_profile(name, arch, disk):
         qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
         if not os.path.exists(qemu_bin):
              qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
         
+        # CirrOS needs a machine type that supports PCI
+        machine = "virt" if arch == "aarch64" else "q35"
+        
         content = f"""
 name = "{name}"
 architecture = "{arch}"
+machine = "{machine}"
 qemu_executable = "{qemu_bin}"
-disk_path = "{test_disk}"
+disk_path = "{disk}"
 memory_mib = 512
 cpu_cores = 1
 network_mode = "user"
@@ -51,8 +66,8 @@ enable_fullscreen = false
             f.write(content)
         return name, qemu_bin
 
-    native_name, native_bin = create_profile("Native VM", native_qemu)
-    cross_name, cross_bin = create_profile("Cross VM", cross_qemu)
+    native_name, native_bin = create_profile("Native VM", native_qemu, native_img)
+    cross_name, cross_bin = create_profile("Cross VM", cross_qemu, cross_img)
 
     def run_verification(target_name, expected_bin):
         print(f"\n--- VERIFYING {target_name} ({expected_bin}) ---")
@@ -61,15 +76,12 @@ enable_fullscreen = false
         subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
         time.sleep(2)
 
-        # Launch
-        subprocess.run(["open", app_path])
-        time.sleep(5)
-        
         # Launch via CLI to verify the backend logic correctly consumes the profile
         print(f"-> Launching {target_name} via CLI to verify logic...")
         cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
+        # We use a longer timeout for the boot verification
         subprocess.Popen([cli_exe, "--launch", "--profile", target_name])
-        time.sleep(8)
+        time.sleep(15)
 
         # Verify Process
         result = subprocess.run(["pgrep", "-f", expected_bin], capture_output=True)
