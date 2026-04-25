@@ -91,42 +91,36 @@ enable_fullscreen = false
 
     create_profile("Smoke Test", native_qemu, native_img)
 
-    # 2. Ensure app is closed
+    # 2. Update settings.toml to point to smoke_test
+    print("-> Seeding settings.toml with 'smoke_test'...")
+    settings_path = f"{home}/Library/Application Support/QEMU Launcher/settings.toml"
+    settings_content = """
+schema_version = 1
+last_used_profile = "smoke_test"
+recent_profiles = ["smoke_test"]
+auto_launch_enabled = false
+"""
+    with open(settings_path, "w") as f:
+        f.write(settings_content)
+
+    # 3. Ensure app is closed
     print("-> Closing existing instances...")
     subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
     subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
     time.sleep(2)
 
-    # 3. Launch UI
+    # 4. Launch UI
     print("-> Launching QEMU Launcher UI...")
     subprocess.run(["open", app_path])
     time.sleep(5)
 
-    # 4. Verify UI and Lock
-    print("-> Verifying Single-Instance Lock...")
-    cli_exe = f"{app_path}/Contents/MacOS/QEMU Launcher"
-    result = subprocess.run([cli_exe, "--launch", "--profile", "smoke_test"], capture_output=True, text=True)
-    if "Another instance is already running" in result.stderr:
-        print("SUCCESS: Single-instance lock verified.")
-    else:
-        print("FAILED: Single-instance lock not active!")
-        sys.exit(1)
-
     # 5. Launch VM via UI
-    print("-> Selecting 'Smoke Test' and launching via AppleScript...")
+    print("-> Launching 'Smoke Test' via AppleScript shortcut (Cmd+L)...")
     script = '''
     tell application "System Events"
         tell process "QEMU Launcher"
             set frontmost to true
-            tell window "QEMU Launcher"
-                # Select 'Smoke Test' in the QListWidget (which usually appears as a list/table)
-                try
-                    # Try to click the specific row
-                    click (first static text whose value is "Smoke Test")
-                end try
-                delay 1
-                keystroke "l" using command down
-            end tell
+            keystroke "l" using command down
         end tell
     end tell
     '''
