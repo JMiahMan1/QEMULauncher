@@ -56,6 +56,26 @@ def smart_profile_defaults() -> VMProfile:
     return profile
 
 
+def _make_window_global_macos(win_id: int) -> None:
+    """Uses AppKit to make a window appear on all spaces and on top of fullscreen apps."""
+    try:
+        import objc
+        from AppKit import NSWindowCollectionBehaviorCanJoinAllSpaces, NSWindowCollectionBehaviorFullScreenAuxiliary
+
+        # win_id is the WId from Qt (which is the NSWindow pointer on macOS)
+        # We wrap it in an objc_object
+        ns_win = objc.objc_object(c_void_p=win_id)
+        ns_win.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary
+        )
+        # Set a very high window level (above the fullscreen window)
+        # kCGStatusWindowLevel is 21
+        ns_win.setLevel_(21)
+    except Exception:
+        # Fallback for non-macOS or if objc/AppKit is missing
+        pass
+
+
 def _rich_list(title: str, items: list[str], empty_text: str) -> str:
     if not items:
         return f"<b>{title}</b><br>{empty_text}"
@@ -102,13 +122,16 @@ class FullscreenOverlay(QWidget):
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.hide)
 
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        _make_window_global_macos(int(self.winId()))
+        super().showEvent(event)
+
     def _handle_click(self) -> None:
         self.hide()
         self.on_exit_fs()
 
-    def show_at_top(self) -> None:
-        screen = QApplication.primaryScreen().geometry()
-        self.move(screen.center().x() - self.width() // 2, 0)
+    def show_at_top(self, x_center: int, y_top: int) -> None:
+        self.move(x_center - self.width() // 2, y_top)
         self.show()
         self._hide_timer.start(4000)
 
@@ -119,14 +142,20 @@ class HotEdgeTrigger(QWidget):
     def __init__(self, on_trigger: callable) -> None:
         super().__init__()
         self.on_trigger = on_trigger
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(300, 4)
-        # Transparent but captures mouse
+        self.setFixedSize(400, 10)
+        # Transparent but captures mouse. Alpha 1 is effectively invisible but still receives events.
         self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
 
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        _make_window_global_macos(int(self.winId()))
+        super().showEvent(event)
+
     def enterEvent(self, event) -> None:  # type: ignore[override]
-        self.on_trigger()
+        # Show overlay centered on this trigger's horizontal position
+        geom = self.geometry()
+        self.on_trigger(geom.center().x(), geom.top())
         super().enterEvent(event)
 
 
@@ -698,11 +727,19 @@ class MainWindow(QMainWindow):
                 message = f"{message}\n{controller.display_note}"
             self.status_label.setText(message)
 
-            # Show the hot edge trigger if we are in fullscreen
+            # Show the hot edge trigger on the target screen
             if profile.enable_fullscreen:
-                screen_geom = QApplication.primaryScreen().geometry()
-                self.hot_edge.move(screen_geom.center().x() - self.hot_edge.width() // 2, 0)
+                from .display import resolve_display
+
+                target = resolve_display(profile.target_display_name)
+                if target:
+                    # Position at the top-center of the target display
+                    self.hot_edge.move(target.x + (target.width - self.hot_edge.width()) // 2, target.y)
+                else:
+                    screen_geom = QApplication.primaryScreen().geometry()
+                    self.hot_edge.move(screen_geom.center().x() - self.hot_edge.width() // 2, 0)
                 self.hot_edge.show()
+                self.hot_edge.raise_()
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
@@ -745,8 +782,9 @@ class MainWindow(QMainWindow):
         if not pid:
             self.status_label.setText("No running VM found to exit fullscreen.")
             return
-        
+
         from .display import set_fullscreen
+
         note = set_fullscreen(pid, profile.target_display_name, enabled=False)
         if note:
             self.status_label.setText(note)

@@ -451,7 +451,31 @@ class VMController:
         if not self.artifacts.pidfile.exists():
             return None
         try:
-            return int(self.artifacts.pidfile.read_text(encoding="utf-8").strip())
+            pid_str = self.artifacts.pidfile.read_text(encoding="utf-8").strip()
+            if not pid_str:
+                return None
+            pid = int(pid_str)
+
+            # Verify this PID actually belongs to a QEMU process
+            # and is not a stale PID from a previous crash.
+            if not self._pid_is_running(pid):
+                return None
+
+            # On many systems we can check the process name for extra safety
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True, check=False
+                )
+                comm = result.stdout.strip().lower()
+                if "qemu-system" not in comm and "qemu" not in comm:
+                    return None
+            except Exception:
+                # If ps fails, we still have the _pid_is_running check
+                pass
+
+            return pid
         except (OSError, ValueError):
             return None
 
@@ -582,7 +606,7 @@ class VMController:
                 if pid:
                     break
                 time.sleep(0.2)
-            
+
             if not pid:
                 return
 

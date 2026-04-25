@@ -26,6 +26,7 @@ def is_primary_display_name(name: str | None) -> bool:
 
 
 def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
+    # QEMU native fullscreen on Cocoa only targets the primary display.
     return enable_fullscreen and is_primary_display_name(target_display_name)
 
 
@@ -119,7 +120,6 @@ def _available_displays_macos() -> list[DisplayTarget]:
     # The first screen in the array is always the 'primary' screen (origin 0,0 with menu bar)
     primary_screen = screens[0]
     primary_height = primary_screen.frame().size.height
-
     for index, screen in enumerate(screens):
         frame = screen.frame()
         name = getattr(screen, "localizedName", lambda: None)() or f"Display {index + 1}"
@@ -191,14 +191,20 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             AXUIElementCreateApplication,
             AXUIElementSetAttributeValue,
             AXValueCreate,
-            kAXFullScreenAttribute,
+            kAXFrontmostAttribute,
             kAXPositionAttribute,
             kAXSizeAttribute,
             kAXValueCGPointType,
             kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
-        from Quartz import CGPointMake, CGSizeMake
+        from Quartz import (
+            CGEventCreateKeyboardEvent,
+            CGEventPostToPid,
+            CGPointMake,
+            CGSizeMake,
+            kCGEventFlagMaskCommand,
+        )
     except Exception as exc:
         return f"macOS display placement unavailable: {exc}"
 
@@ -217,26 +223,31 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     if window is None:
         return "Unable to locate the QEMU window for display placement."
 
-    # Give the window a moment to settle before moving it
+    # Bring to front first
+    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x + 40, target.y + 40))
-    size = AXValueCreate(
-        kAXValueCGSizeType,
-        CGSizeMake(max(target.width - 80, 640), max(target.height - 80, 480)),
-    )
+    position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x, target.y))
+    size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(target.width, target.height))
 
-    # Attempt to move and resize with retries
-    for _ in range(3):
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
-        if fullscreen:
-            # Fullscreen often needs to be set after the window is on the correct screen
-            time.sleep(0.2)
-            AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
-        
-        # Verify placement (optional, but let's at least wait a bit between attempts)
-        time.sleep(0.3)
+    # Move and resize
+    AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
+    AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
+
+    if fullscreen:
+        # For Cocoa QEMU, the most reliable way to fullscreen on a specific screen
+        # is to move the window there and then send the Cmd-F shortcut.
+        time.sleep(0.5)
+        # 0x03 is 'f' keycode (actually it's 3 for 'f')
+        kVK_ANSI_F = 0x03
+        cmd_f_down = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, True)
+        cmd_f_up = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, False)
+        if cmd_f_down and cmd_f_up:
+            from Quartz import CGEventSetFlags
+
+            CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
+            CGEventPostToPid(pid, cmd_f_down)
+            CGEventPostToPid(pid, cmd_f_up)
 
     return None
 
