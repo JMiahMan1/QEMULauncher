@@ -13,6 +13,9 @@ on:
       - "main"
       - "qemu-launcher-refactor"
 
+permissions:
+  contents: write
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   APP_NAME: "QEMU Launcher"
@@ -42,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        os: [ubuntu-24.04, macos-26, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -58,9 +61,7 @@ jobs:
 
   build-macos:
     needs: test
-    runs-on: macos-15
-    permissions:
-      contents: write
+    runs-on: macos-26
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -78,11 +79,10 @@ jobs:
           ./build.sh
       - name: Create DMG Installer
         run: |
-          # Create a DMG for distribution
-          hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder "${{ env.APP_NAME }}.app" -ov -format UDZO "${{ env.APP_NAME }}.dmg"
+          hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder "${{ env.APP_NAME }}.app" -ov -format UDBZ "${{ env.APP_NAME }}.dmg"
       - name: Release macOS Artifact
         uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor'
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
         with:
           files: "${{ env.APP_NAME }}.dmg"
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
@@ -125,7 +125,7 @@ jobs:
             dist/qemu-launcher-linux=/opt/qemu-launcher
       - name: Release Artifacts
         uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor'
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
         with:
           files: "*.rpm"
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
@@ -165,7 +165,7 @@ jobs:
               dist/qemu-launcher-linux=/opt/qemu-launcher
       - name: Release Artifacts
         uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor'
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
         with:
           files: "*.rpm"
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
