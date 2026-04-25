@@ -80,18 +80,11 @@ jobs:
       - name: Create DMG Installer
         run: |
           hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder "${{ env.APP_NAME }}.app" -ov -format UDBZ "${{ env.APP_NAME }}.dmg"
-      - name: Release macOS Artifact
-        uses: softprops/action-gh-release@v3
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: "${{ env.APP_NAME }}.dmg"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
-          name: ${{ github.ref == 'refs/heads/main' && format('Latest Build ({0})', github.sha) || format('Branch Build ({0})', github.sha) }}
-          draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: macos-dmg
+          path: "${{ env.APP_NAME }}.dmg"
 
   build-linux-x86:
     needs: test
@@ -123,51 +116,64 @@ jobs:
             --depends qemu \
             --depends python3 \
             dist/qemu-launcher-linux=/opt/qemu-launcher
-      - name: Release Artifacts
-        uses: softprops/action-gh-release@v3
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
+      - name: Upload Linux x86 Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: "*.rpm"
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
-          name: ${{ github.ref == 'refs/heads/main' && format('Latest Build ({0})', github.sha) || format('Branch Build ({0})', github.sha) }}
-          draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: linux-rpm-x86
+          path: "*.rpm"
 
   build-linux-arm64:
     needs: test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm64
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rpm
+          sudo gem install --no-document fpm
+          python3 -m pip install -r requirements.txt
       - name: Build Binary and RPM
-        uses: uraimo/run-on-arch-action@v2
+        run: |
+          python3 -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
+          VERSION="1.0"
+          fpm -s dir -t rpm \
+            -n "qemu-launcher" \
+            -v "${VERSION}" \
+            --iteration "${GITHUB_SHA:0:7}" \
+            --description "QEMU Launcher for macOS and Linux VMs" \
+            --maintainer "QEMU Launcher" \
+            --architecture aarch64 \
+            --depends qemu \
+            --depends python3 \
+            dist/qemu-launcher-linux=/opt/qemu-launcher
+      - name: Upload Linux ARM Artifact
+        uses: actions/upload-artifact@v4
         with:
-          arch: aarch64
-          distro: fedora_latest
-          run: |
-            dnf install -y python3-devel gcc ruby-devel rubygems rpm-build git tk-devel tcl-devel
-            gem install --no-document fpm
-            python3 -m pip install -r requirements.txt
-            python3 -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
-            VERSION="1.0"
-            fpm -s dir -t rpm \
-              -n "qemu-launcher" \
-              -v "${VERSION}" \
-              --iteration "${GITHUB_SHA:0:7}" \
-              --description "QEMU Launcher for macOS and Linux VMs" \
-              --maintainer "QEMU Launcher" \
-              --architecture aarch64 \
-              --depends qemu \
-              --depends python3 \
-              dist/qemu-launcher-linux=/opt/qemu-launcher
+          name: linux-rpm-arm64
+          path: "*.rpm"
+
+  release:
+    needs: [build-macos, build-linux-x86, build-linux-arm64]
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
       - name: Release Artifacts
-        uses: softprops/action-gh-release@v3
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qemu-launcher-refactor')
+        uses: softprops/action-gh-release@v2
         with:
-          files: "*.rpm"
+          files: release-artifacts/*
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.ref == 'refs/heads/main' && 'latest-build' || env.BRANCH_BUILD_TAG }}
           name: ${{ github.ref == 'refs/heads/main' && format('Latest Build ({0})', github.sha) || format('Branch Build ({0})', github.sha) }}
           draft: false
