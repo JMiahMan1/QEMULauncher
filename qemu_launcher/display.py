@@ -232,14 +232,30 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     time.sleep(1.0)
 
     if fullscreen:
-        # Strategy 1: Direct AXFullScreen attribute (Native Space transition)
+        # Strategy 1: Direct AXFullScreen attribute
         AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
         time.sleep(0.5)
         _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
         if is_fs:
             return None
 
-        # Strategy 2: Menu Bar Traversal (Fallback)
+        # Strategy 2: AppleScript Keystroke (QEMU Cocoa uses Cmd+F)
+        script = f"""
+        tell application "System Events"
+            set proc to first process whose unix id is {pid}
+            set frontmost of proc to true
+            keystroke "f" using {{command down}}
+        end tell
+        """
+        subprocess.run(["osascript", "-e", script], capture_output=True)
+        time.sleep(1.0)
+        
+        # Check again
+        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
+        if is_fs:
+            return None
+
+        # Strategy 3: Menu Bar Traversal (Final Fallback)
         _, menubar = AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute, None)
         if menubar:
             _, items = AXUIElementCopyAttributeValue(menubar, kAXChildrenAttribute, None)
@@ -255,8 +271,20 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                                 AXUIElementPerformAction(m_item, kAXPressAction)
                                 return None
     else:
-        # If we want to exit fullscreen on macOS
+        # Exit fullscreen: Try AX first, then AppleScript
         AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, False)
+        time.sleep(0.5)
+        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
+        if is_fs:
+            # Still FS? Try AppleScript toggle
+            script = f"""
+            tell application "System Events"
+                set proc to first process whose unix id is {pid}
+                set frontmost of proc to true
+                keystroke "f" using {{command down}}
+            end tell
+            """
+            subprocess.run(["osascript", "-e", script], capture_output=True)
 
     return None
 
@@ -270,6 +298,11 @@ def set_fullscreen(pid: int, target_display_name: str | None, enabled: bool) -> 
 
 
 def _set_fullscreen_linux(pid: int, enabled: bool) -> str | None:
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type == "wayland":
+        action = "Enter" if enabled else "Exit"
+        return f"Wayland detected: Please use QEMU's internal hotkey (Ctrl+Alt+F) to {action} Fullscreen."
+
     if not _command_exists("wmctrl"):
         return "Install wmctrl to enable fullscreen control on Linux."
     window_id = _find_wmctrl_window_id(pid)
