@@ -41,12 +41,12 @@ def main(argv: list[str] | None = None) -> int:
         print("Another instance is already running. Exiting.", file=sys.stderr)
         return 1
     import logging
-    paths.log_dir.mkdir(parents=True, exist_ok=True)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
-            logging.FileHandler(paths.log_dir / "app.log"),
+            logging.FileHandler(paths.logs_dir / "app.log"),
             logging.StreamHandler(sys.stdout)
         ]
     )
