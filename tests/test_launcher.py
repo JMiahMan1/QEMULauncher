@@ -195,7 +195,7 @@ def test_non_primary_display_uses_post_launch_fullscreen(tmp_path: Path):
         stderr_log_file=tmp_path / "stderr.log",
     )
     command = build_command(profile, fake_caps(), artifacts, host_platform="linux")
-    assert "-full-screen" not in command
+    assert "-full-screen" in command
     assert should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen) is False
 
 

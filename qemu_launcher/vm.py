@@ -319,7 +319,7 @@ def build_command(
         f"unix:{artifacts.qmp_socket},server=on,wait=off",
     ]
 
-    if should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen) and display != "none":
+    if profile.enable_fullscreen and display != "none":
         command.append("-full-screen")
 
     if firmware:

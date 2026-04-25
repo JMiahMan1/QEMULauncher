@@ -198,14 +198,17 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             kAXMenuBarAttribute,
             kAXPositionAttribute,
             kAXPressAction,
+            kAXSizeAttribute,
             kAXTitleAttribute,
             kAXValueCGPointType,
+            kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
         from Quartz import (
             CGEventCreateKeyboardEvent,
             CGEventPostToPid,
             CGPointMake,
+            CGSizeMake,
             kCGEventFlagMaskCommand,
         )
     except Exception as exc:
@@ -230,15 +233,20 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    # 2. Move to the target monitor (Top-Left)
-    # We ONLY move; we do NOT resize. Manual resizing to monitor size via AX
-    # often puts the window in a state that blocks the native Space transition.
+    # 2. Move and Resize to the target monitor
+    # Since QEMU is already in its internal fullscreen mode (due to -full-screen),
+    # we just move the frame to the new monitor.
     position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x, target.y))
     AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
 
-    # 3. Wait for the Window Manager to settle (Screen Association)
-    # This is critical on macOS to avoid 'ding'/rejection.
-    time.sleep(1.0)
+    if fullscreen:
+        # Force size to monitor dimensions only when in fullscreen mode
+        size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(target.width, target.height))
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
+
+    # Give the OS a moment to reflect the change
+    time.sleep(0.5)
+    return None
 
     if fullscreen:
         # Strategy 1: Direct AXFullScreen attribute (Most robust)
