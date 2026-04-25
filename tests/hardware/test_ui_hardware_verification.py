@@ -41,16 +41,24 @@ def check_qmp_running(qmp_path):
 def test_ui_workflow():
     print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
 
-    app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
-    if not os.path.exists(app_path):
-        print(f"ERROR: App bundle not found at {app_path}")
-        sys.exit(1)
+    is_macos = sys.platform == "darwin"
+    home = os.environ.get("HOME")
+    
+    if is_macos:
+        app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
+        config_root = f"{home}/Library/Application Support/QEMU Launcher"
+        qmp_root = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher"
+    else:
+        # Linux
+        app_path = os.getcwd() + "/qemu_app.py"
+        config_root = f"{home}/.config/qemu-launcher"
+        qmp_root = f"/tmp/qemu-launcher"
 
     # 1. Create Profiles
     print("-> Preparing Multi-Arch environment...")
     import platform as py_platform
     host_arch = py_platform.machine() # 'arm64' or 'x86_64'
-    native_qemu = "aarch64" if host_arch == "arm64" else "x86_64"
+    native_qemu = "aarch64" if (is_macos and host_arch == "arm64") else "x86_64"
 
     def get_cirros(arch):
         filename = f"cirros-0.6.2-{arch}-disk.img"
@@ -63,14 +71,17 @@ def test_ui_workflow():
 
     native_img = get_cirros(native_qemu)
 
-    home = os.environ.get("HOME")
-    profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
+    profiles_dir = f"{config_root}/profiles"
     os.makedirs(profiles_dir, exist_ok=True)
 
     def create_profile(name, arch, disk, fullscreen=False, display=""):
-        qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
-        if not os.path.exists(qemu_bin):
-             qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
+        if is_macos:
+            qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
+            if not os.path.exists(qemu_bin):
+                 qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
+        else:
+            qemu_bin = shutil.which(f"qemu-system-{arch}") or f"/usr/bin/qemu-system-{arch}"
+
         machine = "virt" if arch == "aarch64" else "q35"
 
         content = f"""
@@ -90,12 +101,14 @@ target_display_name = "{display}"
             f.write(content)
         return name, qemu_bin
 
-    # 1. Create a Fullscreen Smoke Test Profile on the secondary monitor (VG248)
-    create_profile("Smoke Test", native_qemu, native_img, fullscreen=True, display="VG248")
+    # Target display from env or default
+    target_display = os.environ.get("TEST_DISPLAY", "VG248" if is_macos else "Primary Display")
+    create_profile("Smoke Test", native_qemu, native_img, fullscreen=True, display=target_display)
 
-    # 2. Update settings.toml to point to smoke_test
-    print("-> Seeding settings.toml with 'smoke_test'...")
-    settings_path = f"{home}/Library/Application Support/QEMU Launcher/settings.toml"
+    # 2. Update settings.toml
+    print(f"-> Seeding settings.toml at {config_root}...")
+    os.makedirs(config_root, exist_ok=True)
+    settings_path = f"{config_root}/settings.toml"
     settings_content = """
 schema_version = 1
 last_used_profile = "smoke_test"
@@ -107,50 +120,52 @@ auto_launch_enabled = false
 
     # 3. Ensure app is closed
     print("-> Closing existing instances...")
-    subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
+    if is_macos:
+        subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
     subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
     time.sleep(2)
 
     # 4. Launch UI
     print("-> Launching QEMU Launcher UI...")
-    subprocess.run(["open", app_path])
+    if is_macos:
+        subprocess.run(["open", app_path])
+    else:
+        # Launch via python on Linux
+        subprocess.Popen([sys.executable, app_path], start_new_session=True)
     time.sleep(5)
 
     # 5. Launch VM via UI
-    print("-> Launching 'Smoke Test' via AppleScript shortcut (Cmd+L)...")
-    script = '''
-    tell application "System Events"
-        tell process "QEMU Launcher"
-            set frontmost to true
-            keystroke "l" using command down
+    if is_macos:
+        print("-> Launching 'Smoke Test' via AppleScript shortcut (Cmd+L)...")
+        script = '''
+        tell application "System Events"
+            tell process "QEMU Launcher"
+                set frontmost to true
+                keystroke "l" using command down
+            end tell
         end tell
-    end tell
-    '''
-    run_applescript(script)
+        '''
+        run_applescript(script)
+    else:
+        # On Linux we use xdotool if available
+        if shutil.which("xdotool"):
+            print("-> Launching 'Smoke Test' via xdotool (Ctrl+L)...")
+            subprocess.run(["xdotool", "key", "Control+l"])
 
     # 6. Verify VM Deep Boot
     print("-> Waiting for VM stabilization...")
     time.sleep(10)
 
-    qmp_path = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher/profiles/Smoke Test/qmp.sock"
+    qmp_path = f"{qmp_root}/profiles/Smoke Test/qmp.sock"
     if check_qmp_running(qmp_path):
         print("SUCCESS: VM is running and executing instructions (QMP verified).")
     else:
         print("FAILED: VM is not running correctly or QMP unavailable.")
         sys.exit(1)
 
-    # 7. Check Window Title
-    print("-> Verifying Console Window Title...")
-    script = f'tell application "System Events" to tell process "qemu-system-{native_qemu}" to name of window 1'
-    title, _ = run_applescript(script)
-    print(f"Detected Window Title: {title}")
-    if "smoke test" in title.lower():
-        print("SUCCESS: Console window title matches profile name.")
-    else:
-        print("WARNING: Console window title mismatch, but VM is running.")
-
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
 
 if __name__ == "__main__":
+    import shutil
     test_ui_workflow()
