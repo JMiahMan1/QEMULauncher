@@ -362,8 +362,10 @@ class QmpClient:
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.connect(str(self.socket_path))
                 self._socket = sock
-                self._reader = sock.makefile("r", encoding="utf-8")
-                self._read_event()
+                # Standard QMP handshake: read greeting and send capabilities
+                greeting = self._read_event()
+                if "QMP" not in greeting:
+                    raise RuntimeError(f"Invalid QMP greeting: {greeting}")
                 self.execute("qmp_capabilities")
                 return
             time.sleep(0.1)
@@ -439,6 +441,10 @@ class VMController:
             "--shared-dir",
             self.profile.expanded_shared_dir_path(),
         ]
+        if self.host_platform == "darwin":
+            # macOS virtiofsd (Rust version) requires 'sandbox none' because it lacks
+            # the Linux-specific pivot_root/namespace support.
+            command.extend(["--sandbox", "none"])
         self.virtiofsd_process = subprocess.Popen(command, env=_clean_env())
         deadline = time.time() + 5
         while time.time() < deadline:
