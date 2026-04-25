@@ -130,7 +130,7 @@ auto_launch_enabled = false
     print("-> Waiting for VM stabilization...")
     time.sleep(10)
     
-    qmp_path = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher/profiles/smoke_test/qmp.sock"
+    qmp_path = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher/profiles/Smoke Test/qmp.sock"
     if check_qmp_running(qmp_path):
         print("SUCCESS: VM is running and executing instructions (QMP verified).")
     else:
