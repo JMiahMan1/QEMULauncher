@@ -38,7 +38,7 @@ def parse_version(output: str) -> str:
     return first_line.strip()
 
 
-@dataclass(slots=True)
+@dataclass
 class QemuCapabilities:
     executable: str
     version: str = ""

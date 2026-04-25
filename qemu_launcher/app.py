@@ -72,10 +72,10 @@ def main(argv: list[str] | None = None) -> int:
 
         capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
-            qmp_socket=paths.qmp_socket(profile.name),
-            pidfile=paths.pid_file(profile.name),
-            log_file=paths.log_file(profile.name),
-            stderr_log_file=paths.stderr_log_file(profile.name),
+            qmp_socket=paths.qmp_socket(profile.profile_id),
+            pidfile=paths.pid_file(profile.profile_id),
+            log_file=paths.log_file(profile.profile_id),
+            stderr_log_file=paths.stderr_log_file(profile.profile_id),
         )
         controller = VMController(profile, capabilities, artifacts)
         try:

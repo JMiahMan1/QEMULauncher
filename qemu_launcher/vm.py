@@ -20,7 +20,7 @@ class ConfigurationError(Exception):
     """Raised when the VM configuration is invalid for the current platform."""
 
 
-@dataclass(slots=True)
+@dataclass
 class RuntimeArtifacts:
     qmp_socket: Path
     pidfile: Path
@@ -202,7 +202,12 @@ def build_command(
     else:
         command.extend(["-machine", "q35,accel=hvf:tcg" if platform == "darwin" else "q35,accel=kvm:tcg"])
 
-    command.extend(["-cpu", "host"])
+    # Select best CPU based on acceleration
+    if "accel=tcg" in command[-1] or (":tcg" in command[-1] and not is_accelerated(platform)):
+        cpu_model = "max"
+    else:
+        cpu_model = "host"
+    command.extend(["-cpu", cpu_model])
     command.extend(["-smp", str(profile.cpu_cores)])
     command.extend(["-m", str(profile.memory_mib)])
 
@@ -468,6 +473,18 @@ def _tail_text(path: Path, lines: int = 10) -> str:
             return "".join(f.readlines()[-lines:])
     except Exception:
         return ""
+
+
+def is_accelerated(platform: str) -> bool:
+    """Check if hardware acceleration is available and accessible."""
+    if platform == "darwin":
+        # On macOS, HVF is generally available on any modern Mac
+        return True
+    if platform == "linux":
+        # Check if KVM device exists and is readable/writable
+        kvm_path = Path("/dev/kvm")
+        return kvm_path.exists() and os.access(kvm_path, os.R_OK | os.W_OK)
+    return False
 
 
 def _osascript_shell_escape(s: str) -> str:

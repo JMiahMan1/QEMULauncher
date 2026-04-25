@@ -11,7 +11,7 @@ from PySide6.QtGui import QGuiApplication
 PRIMARY_DISPLAY_NAME = "Primary Display"
 
 
-@dataclass(slots=True)
+@dataclass
 class DisplayTarget:
     name: str
     x: int

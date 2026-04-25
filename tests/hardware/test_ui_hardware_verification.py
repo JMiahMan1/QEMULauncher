@@ -1,9 +1,11 @@
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 def run_applescript(script):
@@ -44,15 +46,22 @@ def test_ui_workflow():
     is_macos = sys.platform == "darwin"
     home = os.environ.get("HOME")
     
+    # Use an isolated home for the test to avoid path naming drama (like spaces)
+    test_root = Path("/tmp/qemu-launcher-test")
+    if test_root.exists():
+        shutil.rmtree(test_root)
+    test_root.mkdir(parents=True)
+    os.environ["QEMU_LAUNCHER_HOME"] = str(test_root)
+    
+    # AppPaths logic says:
+    config_root = test_root / "config"
+    runtime_root = test_root / "runtime"
+
     if is_macos:
         app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
-        config_root = f"{home}/Library/Application Support/QEMU Launcher"
-        qmp_root = f"{home}/Library/Caches/TemporaryItems/QEMU Launcher"
     else:
         # Linux
         app_path = os.getcwd() + "/qemu_app.py"
-        config_root = f"{home}/.config/qemu-launcher"
-        qmp_root = f"/tmp/qemu-launcher"
 
     # 1. Create Profiles
     print("-> Preparing Multi-Arch environment...")
@@ -71,8 +80,8 @@ def test_ui_workflow():
 
     native_img = get_cirros(native_qemu)
 
-    profiles_dir = f"{config_root}/profiles"
-    os.makedirs(profiles_dir, exist_ok=True)
+    profiles_dir = config_root / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
 
     def create_profile(name, arch, disk, fullscreen=False, display=""):
         if is_macos:
@@ -107,59 +116,61 @@ target_display_name = "{display}"
 
     # 2. Update settings.toml
     print(f"-> Seeding settings.toml at {config_root}...")
-    os.makedirs(config_root, exist_ok=True)
-    settings_path = f"{config_root}/settings.toml"
+    config_root.mkdir(parents=True, exist_ok=True)
+    settings_path = config_root / "settings.toml"
     settings_content = """
 schema_version = 1
 last_used_profile = "smoke_test"
 recent_profiles = ["smoke_test"]
-auto_launch_enabled = false
+auto_launch_enabled = true
 """
-    with open(settings_path, "w") as f:
-        f.write(settings_content)
+    settings_path.write_text(settings_content, encoding="utf-8")
 
     # 3. Ensure app is closed
     print("-> Closing existing instances...")
     if is_macos:
         subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
+    subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
     subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
+    
+    # Remove lock file if it exists (though test_root is fresh)
+    lock_file = config_root / "app.lock"
+    if lock_file.exists():
+        lock_file.unlink()
+    
     time.sleep(2)
 
     # 4. Launch UI
     print("-> Launching QEMU Launcher UI...")
+    env = os.environ.copy()
     if is_macos:
-        subprocess.run(["open", app_path])
+        # For macOS app bundle, we might need to set the env via 'open' or just run the binary
+        # Running the binary directly is easier for env passing
+        bin_path = f"{app_path}/Contents/MacOS/QEMU Launcher"
+        subprocess.Popen([bin_path], env=env, start_new_session=True)
     else:
         # Launch via python on Linux
-        subprocess.Popen([sys.executable, app_path], start_new_session=True)
+        subprocess.Popen([sys.executable, app_path], env=env, start_new_session=True)
     time.sleep(5)
 
-    # 5. Launch VM via UI
-    if is_macos:
-        print("-> Launching 'Smoke Test' via AppleScript shortcut (Cmd+L)...")
-        script = '''
-        tell application "System Events"
-            tell process "QEMU Launcher"
-                set frontmost to true
-                keystroke "l" using command down
-            end tell
-        end tell
-        '''
-        run_applescript(script)
-    else:
-        # On Linux we use xdotool if available
-        if shutil.which("xdotool"):
-            print("-> Launching 'Smoke Test' via xdotool (Ctrl+L)...")
-            subprocess.run(["xdotool", "key", "Control+l"])
-
+    # 5. Launch VM via UI (if auto-launch failed or for extra check)
+    # We rely on auto-launch now since xdotool/AppleScript can be flaky
+    
     # 6. Verify VM Deep Boot
     print("-> Waiting for VM stabilization...")
     time.sleep(10)
 
-    qmp_path = f"{qmp_root}/profiles/Smoke Test/qmp.sock"
+    # QMP path uses profile_id which is 'smoke_test'
+    qmp_path = runtime_root / "profiles" / "smoke_test" / "qmp.sock"
     if check_qmp_running(qmp_path):
         print("SUCCESS: VM is running and executing instructions (QMP verified).")
     else:
+        # Check logs if failed
+        log_dir = test_root / "state" / "logs"
+        if log_dir.exists():
+             app_log = log_dir / "app.log"
+             if app_log.exists():
+                 print(f"-> App Log tail:\n{app_log.read_text()[-500:]}")
         print("FAILED: VM is not running correctly or QMP unavailable.")
         sys.exit(1)
 

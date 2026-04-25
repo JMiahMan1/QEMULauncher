@@ -1,8 +1,9 @@
-from __future__ import annotations
-
+import logging
 import sys
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger("qemu-launcher")
 
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QGuiApplication
@@ -242,10 +243,10 @@ class MainWindow(QMainWindow):
         from .vm import RuntimeArtifacts
         capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
-            qmp_socket=self.paths.qmp_socket(profile.name),
-            pidfile=self.paths.pid_file(profile.name),
-            log_file=self.paths.log_file(profile.name),
-            stderr_log_file=self.paths.stderr_log_file(profile.name),
+            qmp_socket=self.paths.qmp_socket(profile.profile_id),
+            pidfile=self.paths.pid_file(profile.profile_id),
+            log_file=self.paths.log_file(profile.profile_id),
+            stderr_log_file=self.paths.stderr_log_file(profile.profile_id),
         )
         return VMController(profile, capabilities, artifacts)
 
@@ -662,7 +663,7 @@ class MainWindow(QMainWindow):
         self.webcam_check.setChecked(profile.enable_webcam)
         self.usb_devices_edit.setText("; ".join(profile.usb_devices))
         self.network_combo.setCurrentText(profile.network_mode)
-        self.bridge_edit.setText(profile.bridge_name)
+        self.bridge_combo.setCurrentText(profile.bridge_interface)
         self.auto_resume_check.setChecked(profile.auto_resume)
         self.resume_snapshot_edit.setText(profile.resume_snapshot_name)
         self.extra_args_edit.setPlainText("\n".join(profile.extra_args))
@@ -691,7 +692,7 @@ class MainWindow(QMainWindow):
         profile.enable_webcam = self.webcam_check.isChecked()
         profile.usb_devices = [chunk.strip() for chunk in self.usb_devices_edit.text().split(";") if chunk.strip()]
         profile.network_mode = self.network_combo.currentText()
-        profile.bridge_name = self.bridge_edit.text().strip()
+        profile.bridge_interface = self.bridge_combo.currentText().strip()
         profile.auto_resume = self.auto_resume_check.isChecked()
         profile.resume_snapshot_name = self.resume_snapshot_edit.text().strip() or "resume"
         profile.extra_args = [line.strip() for line in self.extra_args_edit.toPlainText().splitlines() if line.strip()]
@@ -820,9 +821,12 @@ class MainWindow(QMainWindow):
         if self._startup_launch_done or not self.settings.auto_launch_enabled:
             return
         profile_id = self.settings.auto_launch_profile or self.settings.last_used_profile
+        logger.info(f"Auto-launch check: enabled={self.settings.auto_launch_enabled}, profile_id={profile_id}")
         if not profile_id or profile_id not in self.profile_map:
+            logger.warning(f"Auto-launch profile '{profile_id}' not found in map: {list(self.profile_map.keys())}")
             return
         self._startup_launch_done = True
+        logger.info(f"Auto-launching profile '{profile_id}'")
         if profile_id != self.current_profile_id:
             self.current_profile_id = profile_id
             self._rebuild_profile_list()
