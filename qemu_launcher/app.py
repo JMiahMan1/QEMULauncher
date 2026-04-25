@@ -40,6 +40,18 @@ def main(argv: list[str] | None = None) -> int:
         # but for safety let's lock everything.
         print("Another instance is already running. Exiting.", file=sys.stderr)
         return 1
+    import logging
+    paths.log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(paths.log_dir / "app.log"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    logger = logging.getLogger("qemu-launcher")
+    logger.info("Application starting...")
 
     parser = argparse.ArgumentParser(description="QEMU Launcher")
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved QEMU command and exit")
