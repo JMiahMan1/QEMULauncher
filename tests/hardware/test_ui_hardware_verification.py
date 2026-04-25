@@ -22,19 +22,23 @@ def test_ui_workflow():
     if not os.path.exists(test_disk):
         subprocess.run(["qemu-img", "create", "-f", "qcow2", test_disk, "1M"], capture_output=True)
     
-    # Create a valid smoke test profile
+    # Create a valid smoke test profile based on host architecture
+    import platform as py_platform
+    host_arch = py_platform.machine() # 'arm64' or 'x86_64'
+    target_arch = "aarch64" if host_arch == "arm64" else "x86_64"
+    
+    qemu_bin = "/opt/homebrew/bin/qemu-system-aarch64" if target_arch == "aarch64" else "/opt/homebrew/bin/qemu-system-x86_64"
+    if not os.path.exists(qemu_bin):
+        # Fallback for standard locations
+        qemu_bin = f"/usr/local/bin/qemu-system-{target_arch}"
+
     home = os.environ.get("HOME")
     profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
     os.makedirs(profiles_dir, exist_ok=True)
     
-    qemu_bin = "/opt/homebrew/bin/qemu-system-aarch64"
-    if not os.path.exists(qemu_bin):
-        # Fallback for Intel Macs
-        qemu_bin = "/usr/local/bin/qemu-system-x86_64"
-
     smoke_profile = f"""
 name = "Smoke Test"
-architecture = "aarch64"
+architecture = "{target_arch}"
 qemu_executable = "{qemu_bin}"
 disk_path = "{test_disk}"
 memory_mib = 1024
