@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -86,13 +87,21 @@ def _rich_list(title: str, items: list[str], empty_text: str) -> str:
 
 
 class FullscreenOverlay(QWidget):
-    """A floating menu that appears when hovering at the top of the screen."""
+    """The menu that appears when the hot edge is triggered."""
 
-    def __init__(self, on_exit_fs: callable) -> None:
+    def __init__(self, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None) -> None:
         super().__init__()
+        self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._init_ui()
+        self.hide()
+
+        if sys.platform == "darwin":
+            _make_window_global_macos(int(self.winId()))
+
+    def _init_ui(self) -> None:
         self.setFixedSize(180, 50)
 
         layout = QVBoxLayout(self)
@@ -124,41 +133,76 @@ class FullscreenOverlay(QWidget):
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.hide)
 
-    def showEvent(self, event) -> None:  # type: ignore[override]
-        _make_window_global_macos(int(self.winId()))
-        super().showEvent(event)
-
     def _handle_click(self) -> None:
         self.hide()
-        self.on_exit_fs()
+        if self.on_exit_fs:
+            self.on_exit_fs()
 
-    def show_at_top(self, x_center: int, y_top: int) -> None:
-        self.move(x_center - self.width() // 2, y_top)
+    def show_at_top(self) -> None:
+        screens = QGuiApplication.screens()
+        screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+        geom = screen.geometry()
+        x = geom.x() + (geom.width() - self.width()) // 2
+        y = geom.y()
+        self.move(x, y)
         self.show()
+        self.raise_()
         self._hide_timer.start(4000)
 
 
 class HotEdgeTrigger(QWidget):
-    """A tiny transparent strip at the top of the screen to detect mouse hover."""
+    """Transparent trigger at the top edge of the screen to show the exit menu."""
 
-    def __init__(self, on_trigger: callable) -> None:
+    def __init__(self, target_display_name: str | None = None, on_trigger: Callable[[], None] | None = None) -> None:
         super().__init__()
+        self.target_display_name = target_display_name
         self.on_trigger = on_trigger
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+
+        self._update_geometry()
+        self.show()
+
+        if sys.platform == "darwin":
+            _make_window_global_macos(int(self.winId()))
+
+        # Poll for hover since we are transparent/click-through
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._check_hover)
+        self.timer.start(100)
+
         self.setFixedSize(400, 10)
         # Transparent but captures mouse. Alpha 1 is effectively invisible but still receives events.
         self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
 
-    def showEvent(self, event) -> None:  # type: ignore[override]
-        _make_window_global_macos(int(self.winId()))
-        super().showEvent(event)
+    def _update_geometry(self) -> None:
+        screens = QGuiApplication.screens()
+        if not screens:
+            return
 
-    def enterEvent(self, event) -> None:  # type: ignore[override]
-        # Show overlay centered on this trigger's horizontal position
-        geom = self.geometry()
-        self.on_trigger(geom.center().x(), geom.top())
-        super().enterEvent(event)
+        screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+
+        geom = screen.geometry()
+        width = 400
+        height = 10
+        self.setGeometry(
+            geom.x() + (geom.width() - width) // 2,
+            geom.y(),
+            width,
+            height,
+        )
+
+    def _check_hover(self) -> None:
+        pos = QApplication.cursor().pos()
+        if self.geometry().contains(pos):
+            if self.on_trigger:
+                self.on_trigger()
 
 
 class MainWindow(QMainWindow):
@@ -173,9 +217,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(1220, 860)
 
-        # Overlay Escapes
-        self.overlay = FullscreenOverlay(self._exit_fullscreen)
-        self.hot_edge = HotEdgeTrigger(self.overlay.show_at_top)
+        # Start the escape triggers on the correct monitor
+        target_display = self._current_profile().target_display_name
+        self.fs_overlay = FullscreenOverlay(target_display, on_exit_fs=self._exit_fullscreen)
+        self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self.fs_overlay.show_at_top)
 
         self._build_ui()
         self._restore_window_state()
@@ -559,6 +604,10 @@ class MainWindow(QMainWindow):
         self.current_profile_id = profile_id
         profile = self.profile_map[profile_id]
         self._load_profile_into_form(profile)
+        # Update triggers for the new profile
+        self.fs_overlay.target_display_name = profile.target_display_name
+        self.hot_edge.target_display_name = profile.target_display_name
+        self.hot_edge._update_geometry()
 
     def _load_profile_into_form(self, profile: VMProfile) -> None:
         self.name_edit.setText(profile.name)
@@ -729,19 +778,8 @@ class MainWindow(QMainWindow):
                 message = f"{message}\n{controller.display_note}"
             self.status_label.setText(message)
 
-            # Show the hot edge trigger on the target screen
             if profile.enable_fullscreen:
-                from .display import resolve_display
-
-                target = resolve_display(profile.target_display_name)
-                if target:
-                    # Position at the top-center of the target display
-                    self.hot_edge.move(target.x + (target.width - self.hot_edge.width()) // 2, target.y)
-                else:
-                    screen_geom = QApplication.primaryScreen().geometry()
-                    self.hot_edge.move(screen_geom.center().x() - self.hot_edge.width() // 2, 0)
                 self.hot_edge.show()
-                self.hot_edge.raise_()
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 

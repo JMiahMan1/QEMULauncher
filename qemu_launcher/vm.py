@@ -78,7 +78,7 @@ def _display_backend(profile: VMProfile, caps: QemuCapabilities, host_platform: 
 
 def _display_backend_options(name: str, host_platform: str) -> str:
     if name == "cocoa":
-        return "cocoa,show-cursor=on,left-command-key=on"
+        return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on"
     if name == "gtk":
         return "gtk,gl=on,show-tabs=off,show-menubar=off,zoom-to-fit=on"
     if name == "sdl":

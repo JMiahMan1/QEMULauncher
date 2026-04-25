@@ -198,17 +198,14 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             kAXMenuBarAttribute,
             kAXPositionAttribute,
             kAXPressAction,
-            kAXSizeAttribute,
             kAXTitleAttribute,
             kAXValueCGPointType,
-            kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
         from Quartz import (
             CGEventCreateKeyboardEvent,
             CGEventPostToPid,
             CGPointMake,
-            CGSizeMake,
             kCGEventFlagMaskCommand,
         )
     except Exception as exc:
@@ -229,29 +226,29 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     if window is None:
         return "Unable to locate the QEMU window for display placement."
 
-    # Bring to front first
+    # 1. Bring QEMU to the front
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
+    # 2. Move to the target monitor (Top-Left)
+    # We ONLY move; we do NOT resize. Manual resizing to monitor size via AX
+    # often puts the window in a state that blocks the native Space transition.
     position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x, target.y))
-    size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(target.width, target.height))
-
-    # Move and resize
     AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
-    AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
+
+    # 3. Wait for the Window Manager to settle (Screen Association)
+    # This is critical on macOS to avoid 'ding'/rejection.
+    time.sleep(1.0)
 
     if fullscreen:
-        # Strategy 1: Direct AXFullScreen attribute (Modern QEMU)
-        error = AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
-        if error == 0:
-            time.sleep(0.5)
-            # Verify it actually went fullscreen
-            _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
-            if is_fs:
-                return None
+        # Strategy 1: Direct AXFullScreen attribute (Most robust)
+        AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
+        time.sleep(0.5)
+        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
+        if is_fs:
+            return None
 
-        # Strategy 2: Menu Bar Traversal (Fallback for older QEMU or stubborn Cocoa builds)
-        # Find 'View' -> 'Enter Full Screen'
+        # Strategy 2: Menu Bar Traversal (Fallback)
         _, menubar = AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute, None)
         if menubar:
             _, items = AXUIElementCopyAttributeValue(menubar, kAXChildrenAttribute, None)
@@ -260,22 +257,25 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                 if title == "View":
                     _, menu_children = AXUIElementCopyAttributeValue(item, kAXChildrenAttribute, None)
                     if menu_children:
-                        # Usually the first child is the actual AXMenu
                         _, menu_items = AXUIElementCopyAttributeValue(menu_children[0], kAXChildrenAttribute, None)
                         for m_item in menu_items or []:
                             _, m_title = AXUIElementCopyAttributeValue(m_item, kAXTitleAttribute, None)
-                            if m_title in ["Enter Full Screen", "Enter Fullscreen"]:
+                            if m_title and ("Full Screen" in m_title or "Fullscreen" in m_title):
                                 AXUIElementPerformAction(m_item, kAXPressAction)
-                                time.sleep(0.5)
                                 return None
 
-        # Strategy 3: Key Injection (Last resort fallback)
-        time.sleep(0.5)
+        # Strategy 3: Key Injection (Last resort)
         kVK_ANSI_F = 0x03
         cmd_f_down = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, True)
         cmd_f_up = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, False)
         if cmd_f_down and cmd_f_up:
             from Quartz import CGEventSetFlags
+
+            CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
+            CGEventSetFlags(cmd_f_up, kCGEventFlagMaskCommand)
+            CGEventPostToPid(pid, cmd_f_down)
+            time.sleep(0.1)
+            CGEventPostToPid(pid, cmd_f_up)
 
             CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
             CGEventSetFlags(cmd_f_up, kCGEventFlagMaskCommand)
