@@ -60,7 +60,7 @@ disk_path = "{disk}"
 memory_mib = 512
 cpu_cores = 1
 network_mode = "user"
-audio_enabled = false
+enable_audio = false
 enable_fullscreen = false
 """
         with open(f"{profiles_dir}/{name.lower().replace(' ', '_')}.toml", "w") as f:

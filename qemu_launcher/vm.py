@@ -242,6 +242,8 @@ def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
 
 
 def _audio_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
+    if not profile.enable_audio:
+        return []
     if platform == "darwin":
         driver = "coreaudio"
     elif "pipewire" in caps.audio_drivers:
