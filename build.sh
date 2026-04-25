@@ -45,7 +45,11 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "-> Applying ad-hoc signature with entitlements..."
     codesign --force --deep --sign - --entitlements entitlements.plist "./$OUTPUT_APP"
 
-    # 6. Integrity Check: Verify internal structure
+    # 6. Remove Quarantine Attribute
+    echo "-> Removing macOS quarantine attributes..."
+    xattr -rd com.apple.quarantine "./$OUTPUT_APP" || true
+
+    # 7. Integrity Check: Verify internal structure
     echo "-> Verifying internal bundle structure..."
     if [ ! -f "./$OUTPUT_APP/Contents/MacOS/QEMU Launcher" ]; then
          echo "Error: Main binary missing from bundle."

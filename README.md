@@ -1,61 +1,57 @@
 # QEMU Launcher
 
-QEMU Launcher is a lightweight desktop controller for QEMU on macOS and Linux. It now uses a typed profile model, a Qt-based settings editor, platform-aware command generation, and a managed runtime layer with QMP sockets, pidfiles, and logs.
+A premium, native-feeling virtualization manager for macOS and Linux. QEMU Launcher provides a streamlined interface for managing high-performance VMs with native-grade monitor placement, seamless networking, and a state-of-the-art UI.
 
-## Requirements
+![UI Preview](RunLinux.icns)
 
-- Python 3.12 or newer
-- QEMU installed locally on the host
+## 🚀 Key Features
 
-## Current Focus
+*   **Premium macOS Experience**: Optimized for Apple Silicon and Intel, featuring native window management and multi-monitor support.
+*   **Seamless Networking**: High-performance `vmnet-shared` and `bridged` networking using a bundled privileged helper—no root passwords required after a one-time setup.
+*   **Intelligent Display Placement**: Automatically moves and resizes VMs to your chosen monitor, including secondary screens, without the dreaded macOS "ding" sound.
+*   **Auto-Resume**: Remembers your VM state and automatically resumes where you left off.
+*   **Native UI Overlays**: Hidden "Hot Edge" triggers and elegant exit menus that stay visible even in greedy fullscreen modes.
+*   **Shared Folders**: Integrated support for `virtio-9p` and `virtiofs` for high-speed file sharing between host and guest.
+*   **QMP Integration**: Real-time status monitoring and graceful power management via the QEMU Machine Protocol.
 
-- Native-feeling settings UI with persistent profiles
-- Platform-aware launch commands for macOS and Linux
-- Shared-folder support with `virtiofs` when available and `9p` fallback
-- Managed runtime state through QMP, logs, and per-profile runtime directories
-- CI and local smoke tests that validate real launch behavior instead of mock-only string checks
+## 📦 Installation (macOS)
 
-## Usage
+1.  **Download the DMG**: Open the `QEMU Launcher.dmg`.
+2.  **Drag to Applications**: Move the app to your `/Applications` folder.
+3.  **Launch**: Open the app. 
+4.  **One-Time Setup**: If you choose high-performance networking (`vmnet`), the app will ask for your administrator password **once** to install its internal networking helper. After this, all launches are instant and password-free.
 
+## 🛠 Usage
+
+*   **Select a VM**: Use the sidebar to switch between your configured profiles.
+*   **Configure**: Set your CPU, Memory, and target Display.
+*   **Launch**: Click the "Launch" button.
+*   **Exit Fullscreen**: Move your mouse to the **top-center** of the screen to reveal the "Exit Fullscreen" menu.
+
+## 🏗 Architecture & Testing
+
+*   **[Architecture Documentation](ARCHITECTURE.md)**: Deep dive into networking, window management, and security.
+*   **[Testing Framework](TESTING.md)**: Details on local unit tests and remote hardware validation.
+
+## 💻 Development
+
+### Prerequisites
+*   Python 3.12+
+*   QEMU installed (`brew install qemu` or `apt install qemu-system`)
+*   `wmctrl` (Linux only, for display placement)
+
+### Build from Source
 ```bash
-# Open the launcher UI
-python3.12 qemu_app.py
+# Clone the repository
+git clone https://github.com/your-repo/QEMULauncher.git
+cd QEMULauncher
 
-# Preview the current profile command
-python3.12 qemu_app.py --dry-run
+# Install dependencies
+pip install -r requirements.txt
 
-# Launch the current profile without opening the UI
-python3.12 qemu_app.py --launch
-
-# Verify bundled imports
-python3.12 qemu_app.py --integrity-check
+# Build the macOS app bundle
+./build.sh
 ```
 
-## Testing
-
-```bash
-ruff check .
-pytest -q
-./build.sh ci-test
-
-# Use a specific interpreter for build tooling when needed
-PYTHON=python3.13 ./build.sh ci-test
-```
-
-## Remote macOS Smoke
-
-For a Mac on your network, use the SSH smoke script:
-
-```bash
-# Copy the template once and fill in your local values
-cp .env.example .env
-
-# Then run the smoke script; it reads .env automatically
-./scripts/remote_macos_smoke.sh
-```
-
-The local `.env` file is ignored by git. The tracked `.env.example` file is only a template.
-
-That script fetches the current branch on the remote Mac, requires Python 3.12+, creates an isolated virtualenv, installs dependencies, runs lint/tests, performs the integrity check, and runs the build using that same interpreter. You can point it at a different env file with `ENV_FILE=.env.mac ./scripts/remote_macos_smoke.sh`.
-
-The remote Mac flow is for manual verification outside GitHub Actions so platform-specific issues can be caught before pushing changes into the hosted CI pipeline.
+---
+Built with ❤️ for the QEMU community.

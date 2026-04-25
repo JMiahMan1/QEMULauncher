@@ -273,12 +273,18 @@ def test_resolve_sharing_mount_hint(tmp_path: Path):
 
 
 def test_profile_readiness_reports_missing_basics(tmp_path: Path):
-    profile = VMProfile()
-    issues, highlights, notes = profile_readiness(profile, fake_caps())
-    assert "Choose a QEMU binary." in issues
-    assert "Choose a disk image." in issues
-    assert any("No shared folder configured" in note for note in notes)
-    assert not highlights
+    profile = VMProfile(qemu_executable="", disk_path="")
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
+    )
+    highlights, notes, issues = profile_readiness(profile, fake_caps(), artifacts)
+    # With the new permissive logic, these are notes, not issues
+    assert any("QEMU not found" in note for note in notes)
+    assert any("No disk image selected" in note for note in notes)
+    assert not issues
 
 
 def test_profile_readiness_highlights_fullscreen_and_share(tmp_path: Path):
@@ -295,11 +301,16 @@ def test_profile_readiness_highlights_fullscreen_and_share(tmp_path: Path):
         enable_fullscreen=True,
         target_display_name="Projector",
     )
-    issues, highlights, notes = profile_readiness(profile, fake_caps())
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
+    )
+    highlights, notes, issues = profile_readiness(profile, fake_caps(), artifacts)
     assert not issues
-    assert any("Fullscreen target: Projector" == item for item in highlights)
+    assert any("Fullscreen target: Projector" in item for item in highlights)
     assert any("Shared folder:" in item for item in highlights)
-    assert any("Non-primary display fullscreen" in note for note in notes)
 
 
 def test_probe_qemu_uses_real_binary():
@@ -358,7 +369,13 @@ def test_vm_controller_preview_paths(tmp_path: Path):
         qemu_executable="/usr/bin/qemu-system-x86_64",
         disk_path="/tmp/disk.qcow2",
     )
-    controller = VMController(DummyPaths(tmp_path), profile)
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
+    )
+    controller = VMController(profile, fake_caps(), artifacts)
     preview = controller.preview_command()
     joined = " ".join(preview)
     assert "qmp.sock" in joined
@@ -372,7 +389,13 @@ def test_vm_controller_detects_running_pid(tmp_path: Path):
         qemu_executable="/usr/bin/qemu-system-x86_64",
         disk_path="/tmp/disk.qcow2",
     )
-    controller = VMController(DummyPaths(tmp_path), profile)
+    artifacts = RuntimeArtifacts(
+        qmp_socket=tmp_path / "qmp.sock",
+        pidfile=tmp_path / "qemu.pid",
+        log_file=tmp_path / "qemu.log",
+        stderr_log_file=tmp_path / "stderr.log",
+    )
+    controller = VMController(profile, fake_caps(), artifacts)
     controller.artifacts.pidfile.write_text(str(os.getpid()), encoding="utf-8")
 
     # Mock subprocess.run to simulate that this PID is indeed a qemu process

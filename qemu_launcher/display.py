@@ -6,6 +6,8 @@ import sys
 import time
 from dataclasses import dataclass
 
+from PySide6.QtGui import QGuiApplication
+
 PRIMARY_DISPLAY_NAME = "Primary Display"
 
 
@@ -26,49 +28,37 @@ def is_primary_display_name(name: str | None) -> bool:
 
 
 def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
-    # QEMU native fullscreen on Cocoa only targets the primary display.
+    # QEMU Cocoa's internal -full-screen only works reliably on the Primary display.
+    # For secondary displays, we launch windowed and use AX to move/resize.
     return enable_fullscreen and is_primary_display_name(target_display_name)
 
 
 def available_displays() -> list[DisplayTarget]:
-    app = _qgui_application_instance()
+    app = QGuiApplication.instance()
     if app:
-        displays = _qt_available_displays(app)
+        displays: list[DisplayTarget] = []
+        primary = app.primaryScreen()
+        for index, screen in enumerate(app.screens()):
+            geometry = screen.geometry()
+            name = screen.name() or f"Display {index + 1}"
+            is_primary = screen is primary
+            if is_primary:
+                name = f"{name} (Primary)"
+            displays.append(
+                DisplayTarget(
+                    name=name,
+                    x=geometry.x(),
+                    y=geometry.y(),
+                    width=geometry.width(),
+                    height=geometry.height(),
+                    primary=is_primary,
+                )
+            )
         if displays:
             return displays
     if sys.platform == "darwin":
         return _available_displays_macos()
     return []
-
-
-def _qgui_application_instance():
-    try:
-        from PySide6.QtGui import QGuiApplication
-    except Exception:
-        return None
-    return QGuiApplication.instance()
-
-
-def _qt_available_displays(app) -> list[DisplayTarget]:
-    displays: list[DisplayTarget] = []
-    screens = app.screens()
-    for index, screen in enumerate(screens):
-        geometry = screen.geometry()
-        name = screen.name() or f"Display {index + 1}"
-        is_primary = index == 0
-        if is_primary:
-            name = f"{name} (Primary)"
-        displays.append(
-            DisplayTarget(
-                name=name,
-                x=geometry.x(),
-                y=geometry.y(),
-                width=geometry.width(),
-                height=geometry.height(),
-                primary=is_primary,
-            )
-        )
-    return displays
 
 
 def resolve_display(name: str | None) -> DisplayTarget | None:
@@ -87,19 +77,15 @@ def resolve_display(name: str | None) -> DisplayTarget | None:
     return next((display for display in displays if display.primary), displays[0])
 
 
-def arrange_window(pid: int, target_display_name: str | None, fullscreen: bool, elevated: bool = False) -> str | None:
+def arrange_window(pid: int, target_display_name: str | None, fullscreen: bool) -> str | None:
     target = resolve_display(target_display_name)
     if not target:
         return "Display placement unavailable."
     if sys.platform == "darwin":
-        return _arrange_window_macos(pid, target, fullscreen, elevated)
+        return _arrange_window_macos(pid, target, fullscreen)
     if sys.platform.startswith("linux"):
-        return _arrange_window_linux(pid, target, fullscreen, elevated)
+        return _arrange_window_linux(pid, target, fullscreen)
     return None
-
-
-def set_fullscreen(pid: int, target_display_name: str | None, enabled: bool) -> str | None:
-    return arrange_window(pid, target_display_name, enabled)
 
 
 def _normalize_name(name: str | None) -> str:
@@ -114,28 +100,18 @@ def _available_displays_macos() -> list[DisplayTarget]:
     except Exception:
         return []
     displays: list[DisplayTarget] = []
-    screens = AppKit.NSScreen.screens()
-    if not screens:
-        return []
-    # The first screen in the array is always the 'primary' screen (origin 0,0 with menu bar)
-    primary_screen = screens[0]
-    primary_height = primary_screen.frame().size.height
-    for index, screen in enumerate(screens):
+    main_screen = AppKit.NSScreen.mainScreen()
+    for index, screen in enumerate(AppKit.NSScreen.screens()):
         frame = screen.frame()
         name = getattr(screen, "localizedName", lambda: None)() or f"Display {index + 1}"
-        is_primary = screen == primary_screen
+        is_primary = screen == main_screen
         if is_primary:
             name = f"{name} (Primary)"
-
-        # NSScreen uses bottom-left coordinates; AX/Quartz uses top-left.
-        # We convert to top-left relative to the primary screen.
-        y_top_left = int(primary_height - (frame.origin.y + frame.size.height))
-
         displays.append(
             DisplayTarget(
                 name=str(name),
                 x=int(frame.origin.x),
-                y=y_top_left,
+                y=int(frame.origin.y),
                 width=int(frame.size.width),
                 height=int(frame.size.height),
                 primary=is_primary,
@@ -144,30 +120,26 @@ def _available_displays_macos() -> list[DisplayTarget]:
     return displays
 
 
-def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool, elevated: bool = False) -> str | None:
+def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
     if not _command_exists("wmctrl"):
         return "Install wmctrl to enable non-primary display placement on Linux."
     window_id = _find_wmctrl_window_id(pid)
     if not window_id:
         return "Unable to locate the QEMU window for display placement."
-
-    cmd_prefix = ["sudo"] if elevated else []
-
     x = target.x + 40
     y = target.y + 40
     width = max(target.width - 80, 640)
     height = max(target.height - 80, 480)
-
     subprocess.run(
-        cmd_prefix + ["wmctrl", "-i", "-r", window_id, "-e", f"0,{x},{y},{width},{height}"],
+        ["wmctrl", "-i", "-r", window_id, "-e", f"0,{x},{y},{width},{height}"],
         check=False,
         capture_output=True,
         text=True,
     )
-    subprocess.run(cmd_prefix + ["wmctrl", "-i", "-a", window_id], check=False, capture_output=True, text=True)
+    subprocess.run(["wmctrl", "-i", "-a", window_id], check=False, capture_output=True, text=True)
     if fullscreen:
         subprocess.run(
-            cmd_prefix + ["wmctrl", "-i", "-r", window_id, "-b", "add,fullscreen"],
+            ["wmctrl", "-i", "-r", window_id, "-b", "add,fullscreen"],
             check=False,
             capture_output=True,
             text=True,
@@ -187,24 +159,7 @@ def _find_wmctrl_window_id(pid: int, timeout: float = 10.0) -> str | None:
     return None
 
 
-def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, elevated: bool = False) -> str | None:
-    if elevated:
-        # If the window is root-owned, standard AX calls from a user process are blocked.
-        # We must use the privileged system path (System Events) to move it.
-        # Since we already have sudo authority for the VM, this will be seamless.
-        script = f"""
-        tell application "System Events"
-            set qemuWin to first window of (first process whose unix id is {pid})
-            set position of qemuWin to {{ {target.x}, {target.y} }}
-            set size of qemuWin to {{ {target.width}, {target.height} }}
-        end tell
-        """
-        try:
-            subprocess.run(["sudo", "osascript", "-e", script], check=True, capture_output=True)
-            return None
-        except Exception as e:
-            return f"Elevated placement failed: {e}"
-
+def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
     try:
         from ApplicationServices import (
             AXIsProcessTrusted,
@@ -213,6 +168,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, ele
             AXUIElementPerformAction,
             AXUIElementSetAttributeValue,
             AXValueCreate,
+            AXValueGetValue,
             kAXChildrenAttribute,
             kAXFrontmostAttribute,
             kAXFullScreenAttribute,
@@ -225,13 +181,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, ele
             kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
-        from Quartz import (
-            CGEventCreateKeyboardEvent,
-            CGEventPostToPid,
-            CGPointMake,
-            CGSizeMake,
-            kCGEventFlagMaskCommand,
-        )
+        from Quartz import CGPointMake, CGSizeMake
     except Exception as exc:
         return f"macOS display placement unavailable: {exc}"
 
@@ -254,23 +204,35 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, ele
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    # 2. Move and Resize to the target monitor
-    # Since QEMU is already in its internal fullscreen mode (due to -full-screen),
-    # we just move the frame to the new monitor.
-    position = AXValueCreate(kAXValueCGPointType, CGPointMake(target.x, target.y))
-    AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
+    # 2. Get current aspect ratio to avoid 'ding'/conflict
+    # QEMU Cocoa enforces an aspect ratio constraint. We must respect it
+    # during the move to avoid the OS rejecting the resize.
+    _, current_size_val = AXUIElementCopyAttributeValue(window, kAXSizeAttribute, None)
+    if current_size_val:
+        ok, current_size = AXValueGetValue(current_size_val, kAXValueCGSizeType, None)
+        if ok:
+            ratio = current_size.width / current_size.height
+            # Calculate largest width that fits the target monitor's height with this ratio
+            new_h = target.height - 40
+            new_w = new_h * ratio
+            if new_w > target.width:
+                new_w = target.width - 40
+                new_h = new_w / ratio
+
+            position = AXValueCreate(
+                kAXValueCGPointType,
+                CGPointMake(target.x + (target.width - new_w) / 2, target.y + (target.height - new_h) / 2),
+            )
+            size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(new_w, new_h))
+
+            AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
+            AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
+
+    # 3. Wait for the Window Manager to settle
+    time.sleep(1.0)
 
     if fullscreen:
-        # Force size to monitor dimensions only when in fullscreen mode
-        size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(target.width, target.height))
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
-
-    # Give the OS a moment to reflect the change
-    time.sleep(0.5)
-    return None
-
-    if fullscreen:
-        # Strategy 1: Direct AXFullScreen attribute (Most robust)
+        # Strategy 1: Direct AXFullScreen attribute (Native Space transition)
         AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
         time.sleep(0.5)
         _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
@@ -292,24 +254,6 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool, ele
                             if m_title and ("Full Screen" in m_title or "Fullscreen" in m_title):
                                 AXUIElementPerformAction(m_item, kAXPressAction)
                                 return None
-
-        # Strategy 3: Key Injection (Last resort)
-        kVK_ANSI_F = 0x03
-        cmd_f_down = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, True)
-        cmd_f_up = CGEventCreateKeyboardEvent(None, kVK_ANSI_F, False)
-        if cmd_f_down and cmd_f_up:
-            from Quartz import CGEventSetFlags
-
-            CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
-            CGEventSetFlags(cmd_f_up, kCGEventFlagMaskCommand)
-            CGEventPostToPid(pid, cmd_f_down)
-            time.sleep(0.1)
-            CGEventPostToPid(pid, cmd_f_up)
-
-            CGEventSetFlags(cmd_f_down, kCGEventFlagMaskCommand)
-            CGEventSetFlags(cmd_f_up, kCGEventFlagMaskCommand)
-            CGEventPostToPid(pid, cmd_f_down)
-            CGEventPostToPid(pid, cmd_f_up)
 
     return None
 

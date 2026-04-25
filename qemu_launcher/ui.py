@@ -58,22 +58,21 @@ def smart_profile_defaults() -> VMProfile:
 
 
 def _make_window_global_macos(win_id: int) -> None:
-    """Uses AppKit to make a window appear on all spaces and on top of fullscreen apps."""
+    """Ensure a window stays on top of fullscreen apps and across all spaces on macOS."""
     try:
-        import objc
+        from AppKit import NSStatusWindowLevel, NSWindowCollectionBehaviorCanJoinAllSpaces
+        from objc import objc_object
 
-        # win_id is the WId from Qt (which is the NSWindow pointer on macOS)
-        # We wrap it in an objc_object
-        ns_win = objc.objc_object(c_void_p=win_id)
-        # NSWindowCollectionBehaviorCanJoinAllSpaces = 1
-        # NSWindowCollectionBehaviorFullScreenPrimary = 128
-        # NSWindowCollectionBehaviorFullScreenAuxiliary = 256
-        # NSWindowCollectionBehaviorFullScreenAllowsTiling = 2048
-        behavior = 1 | 128 | 256 | 2048
-        ns_win.setCollectionBehavior_(behavior)
-        # Set a very high window level (above the fullscreen window)
-        # kCGStatusWindowLevel is 21
-        ns_win.setLevel_(21)
+        # win_id is the SIP (pointer) to the NSWindow/NSView
+        ns_view = objc_object(c_void_p=win_id)
+        # In Qt, winId() might be the view. We need the window.
+        window = ns_view.window() if hasattr(ns_view, "window") else ns_view
+
+        if window:
+            # NSStatusWindowLevel (25) stays above legacy fullscreen views
+            window.setLevel_(NSStatusWindowLevel + 1)
+            # Ensure it appears on all desktops/spaces
+            window.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces)
     except Exception:
         # Fallback for non-macOS or if objc/AppKit is missing
         pass
@@ -140,7 +139,10 @@ class FullscreenOverlay(QWidget):
 
     def show_at_top(self) -> None:
         screens = QGuiApplication.screens()
-        screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+        if not self.target_display_name:
+            screen = screens[0]
+        else:
+            screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
         geom = screen.geometry()
         x = geom.x() + (geom.width() - self.width()) // 2
         y = geom.y()
@@ -177,16 +179,21 @@ class HotEdgeTrigger(QWidget):
         self.timer.timeout.connect(self._check_hover)
         self.timer.start(100)
 
-        self.setFixedSize(400, 10)
         # Transparent but captures mouse. Alpha 1 is effectively invisible but still receives events.
         self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
+
+        # Ensure it starts on the correct monitor
+        QTimer.singleShot(500, self._update_geometry)
 
     def _update_geometry(self) -> None:
         screens = QGuiApplication.screens()
         if not screens:
             return
 
-        screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+        if not self.target_display_name:
+            screen = screens[0]
+        else:
+            screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
         width = 400
@@ -199,8 +206,10 @@ class HotEdgeTrigger(QWidget):
         )
 
     def _check_hover(self) -> None:
-        pos = QApplication.cursor().pos()
-        if self.geometry().contains(pos):
+        """Poll cursor position to check for hover trigger."""
+        from PySide6.QtGui import QCursor
+        cursor_pos = QCursor.pos()
+        if self.geometry().contains(cursor_pos):
             if self.on_trigger:
                 self.on_trigger()
 
@@ -227,8 +236,21 @@ class MainWindow(QMainWindow):
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
         QTimer.singleShot(0, self._maybe_auto_launch_startup_profile)
 
+    def _create_controller(self, profile: VMProfile) -> VMController:
+        """Centralized factory for VMController with correct dependencies."""
+        from .capabilities import probe_qemu
+        from .vm import RuntimeArtifacts
+        capabilities = probe_qemu(self.paths.qemu_bin)
+        artifacts = RuntimeArtifacts(
+            qmp_socket=self.paths.qmp_socket(profile.name),
+            pidfile=self.paths.pid_file(profile.name),
+            log_file=self.paths.log_file(profile.name),
+            stderr_log_file=self.paths.stderr_log_file(profile.name),
+        )
+        return VMController(profile, capabilities, artifacts)
+
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        controller = VMController(self.paths, self._current_profile())
+        controller = self._create_controller(self._current_profile())
         if controller.is_running():
             result = self._confirm_close_running_vm(controller)
             if result == QMessageBox.Cancel:
@@ -714,12 +736,12 @@ class MainWindow(QMainWindow):
     def _refresh_preview(self) -> None:
         try:
             profile = self._profile_from_form()
-            controller = VMController(self.paths, profile)
+            controller = self._create_controller(profile)
             preview = shell_join(controller.preview_command())
             caps = controller.capabilities
             running = "running" if controller.is_running() else "stopped"
             sharing_mode, mount_help = resolve_sharing(profile, caps)
-            issues, highlights, notes = profile_readiness(profile, caps)
+            highlights, notes, issues = profile_readiness(profile, caps, controller.artifacts)
             self.preview_edit.setPlainText(preview)
             self.sharing_info_label.setText(f"Sharing backend: {sharing_mode}\nGuest mount: {mount_help}")
             display_note = (
@@ -767,7 +789,7 @@ class MainWindow(QMainWindow):
         if not self._save_current_profile():
             return
         profile = self._current_profile()
-        controller = VMController(self.paths, profile)
+        controller = self._create_controller(profile)
         try:
             launched = controller.launch()
             if launched is None and controller.is_running():
@@ -797,7 +819,7 @@ class MainWindow(QMainWindow):
         self._launch_profile()
 
     def _show_vm_status(self) -> None:
-        controller = VMController(self.paths, self._current_profile())
+        controller = self._create_controller(self._current_profile())
         try:
             status = controller.status()
             self.status_label.setText(f"VM status: {status.get('status', status)}")
@@ -808,7 +830,7 @@ class MainWindow(QMainWindow):
         if not self._save_current_profile():
             return
         profile = self._current_profile()
-        controller = VMController(self.paths, profile)
+        controller = self._create_controller(profile)
         try:
             controller.save_state()
             self.status_label.setText(f"Saved snapshot '{profile.resume_snapshot_name}' for {profile.name}")
@@ -817,7 +839,7 @@ class MainWindow(QMainWindow):
 
     def _exit_fullscreen(self) -> None:
         profile = self._current_profile()
-        controller = VMController(self.paths, profile)
+        controller = self._create_controller(profile)
         pid = controller._read_pid()
         if not pid:
             self.status_label.setText("No running VM found to exit fullscreen.")
@@ -837,7 +859,7 @@ class MainWindow(QMainWindow):
         if not self._save_current_profile():
             return
         profile = self._current_profile()
-        controller = VMController(self.paths, profile)
+        controller = self._create_controller(profile)
         try:
             controller.stop(save_state=True)
             self.status_label.setText(f"Stopped {profile.name} and saved snapshot '{profile.resume_snapshot_name}'")

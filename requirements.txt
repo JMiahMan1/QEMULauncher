@@ -6,3 +6,4 @@ dmgbuild
 pyinstaller
 pytest
 ruff
+tomli; python_version < "3.11"

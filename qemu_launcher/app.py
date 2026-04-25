@@ -39,7 +39,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run or args.launch:
         paths, profile = _find_profile(args.profile)
-        controller = VMController(paths, profile)
+        # Instantiate the controller with correct dependencies
+        from .capabilities import probe_qemu
+        from .vm import RuntimeArtifacts
+        
+        capabilities = probe_qemu(paths.qemu_bin)
+        artifacts = RuntimeArtifacts(
+            qmp_socket=paths.qmp_socket(profile.name),
+            pidfile=paths.pid_file(profile.name),
+            log_file=paths.log_file(profile.name),
+            stderr_log_file=paths.stderr_log_file(profile.name),
+        )
+        controller = VMController(profile, capabilities, artifacts)
         try:
             if args.dry_run:
                 print(shell_join(controller.preview_command()))
