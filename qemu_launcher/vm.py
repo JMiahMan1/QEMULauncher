@@ -331,34 +331,47 @@ def _ensure_helper_installed() -> bool:
     if os.path.exists(target_path):
         return True
 
-    # Try to find the bundled helper
-    # In a PyInstaller bundle, bundled files are in sys._MEIPASS or Resources
-    bundled_helper = None
+    # Try to find the bundled helper in every possible location
+    search_paths = []
+    
+    # 1. PyInstaller temporary directory
     if hasattr(sys, "_MEIPASS"):
-        path = Path(sys._MEIPASS) / "qemu-launcher-helper"
+        search_paths.append(Path(sys._MEIPASS) / "qemu-launcher-helper")
+    
+    # 2. macOS bundle Resources (via NSBundle)
+    try:
+        from AppKit import NSBundle
+        res_path = NSBundle.mainBundle().resourcePath()
+        if res_path:
+            search_paths.append(Path(res_path) / "qemu-launcher-helper")
+    except (ImportError, Exception):
+        pass
+
+    # 3. Relative to executable (for both dev and bundle)
+    exe_dir = Path(sys.executable).parent
+    search_paths.append(exe_dir / "qemu-launcher-helper")
+    search_paths.append(exe_dir.parent / "Resources" / "qemu-launcher-helper")
+    
+    # 4. Relative to current file (dev mode)
+    search_paths.append(Path(__file__).parent.parent / "qemu-launcher-helper")
+
+    bundled_helper = None
+    for path in search_paths:
         if path.exists():
             bundled_helper = path
-    
-    if not bundled_helper:
-        # Check macOS bundle Resources folder
-        try:
-            from AppKit import NSBundle
-            path = Path(NSBundle.mainBundle().resourcePath()) / "qemu-launcher-helper"
-            if path.exists():
-                bundled_helper = path
-        except ImportError:
-            pass
+            break
 
     if not bundled_helper:
-        # Check relative to script
-        path = Path(__file__).parent.parent / "qemu-launcher-helper"
-        if path.exists():
-            bundled_helper = path
+        # Final desperate search in the same directory as the script
+        potential = Path(sys.argv[0]).parent / "qemu-launcher-helper"
+        if potential.exists():
+            bundled_helper = potential
 
     if not bundled_helper:
         return False
 
-    script = f'do shell script "mkdir -p /usr/local/bin && cp {bundled_helper} {target_path} && chown root {target_path} && chmod 4755 {target_path}" with administrator privileges'
+    # Perform the installation via osascript with administrator privileges
+    script = f'do shell script "mkdir -p /usr/local/bin && cp \'{bundled_helper}\' \'{target_path}\' && chown root \'{target_path}\' && chmod 4755 \'{target_path}\'" with administrator privileges'
     try:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
         return True
