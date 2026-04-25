@@ -141,8 +141,7 @@ jobs:
         uses: uraimo/run-on-arch-action@v2
         with:
           arch: aarch64
-          distro: none
-          image: python:3.12-slim-bookworm
+          base_image: python:3.12-slim-bookworm
           run: |
             python3 -m pip install --upgrade pip
             python3 -m pip install -r requirements.txt
