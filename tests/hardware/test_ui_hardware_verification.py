@@ -16,7 +16,36 @@ def test_ui_workflow():
         print(f"ERROR: App bundle not found at {app_path}")
         sys.exit(1)
 
-    # 1. Ensure app is closed
+    # 1. Create Smoke Test Disk and Profile
+    print("-> Preparing Smoke Test environment...")
+    test_disk = "/tmp/smoke.qcow2"
+    if not os.path.exists(test_disk):
+        subprocess.run(["qemu-img", "create", "-f", "qcow2", test_disk, "1M"], capture_output=True)
+    
+    # Create a valid smoke test profile
+    home = os.environ.get("HOME")
+    profiles_dir = f"{home}/Library/Application Support/QEMU Launcher/profiles"
+    os.makedirs(profiles_dir, exist_ok=True)
+    
+    qemu_bin = "/opt/homebrew/bin/qemu-system-aarch64"
+    if not os.path.exists(qemu_bin):
+        # Fallback for Intel Macs
+        qemu_bin = "/usr/local/bin/qemu-system-x86_64"
+
+    smoke_profile = f"""
+name = "Smoke Test"
+architecture = "aarch64"
+qemu_executable = "{qemu_bin}"
+disk_path = "{test_disk}"
+memory_mib = 1024
+cpu_cores = 2
+network_mode = "auto"
+enable_fullscreen = true
+"""
+    with open(f"{profiles_dir}/smoke.toml", "w") as f:
+        f.write(smoke_profile)
+
+    # 2. Ensure app is closed
     print("-> Closing existing instances...")
     subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
     subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
