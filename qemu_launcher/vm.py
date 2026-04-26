@@ -397,21 +397,34 @@ def build_command(
 
     return command
 
-
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
-    if platform == "darwin":
-        if profile.enable_fullscreen:
-            # SDL is required for reliable monitor targeting on Mac when "Separate Spaces" is on.
-            # Cocoa backend does not support display selection.
-            if "sdl" in caps.displays:
-                return "sdl,show-cursor=on"
-            else:
-                logger.warning("SDL display backend not found; monitor targeting may fail.")
-        return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on"
-    if "gtk" in caps.displays:
-        return "gtk,gl=on,show-cursor=on"
-    return "sdl,show-cursor=on"
+    needs_gl = profile.graphics_mode == "virtio-gl"
+    
+    # macOS Cocoa uses gl=es, while SDL/GTK use gl=on
+    gl_flag_mac = ",gl=es" if needs_gl else ""
+    gl_flag_std = ",gl=on" if needs_gl else ""
 
+    if profile.display_backend != "auto":
+        if profile.display_backend == "cocoa":
+            return f"cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on{gl_flag_mac}"
+        if profile.display_backend == "sdl":
+            return f"sdl,show-cursor=on{gl_flag_std}"
+        if profile.display_backend == "gtk":
+            return f"gtk,show-cursor=on{gl_flag_std}"
+        if profile.display_backend == "none":
+            return "none"
+
+    if platform == "darwin":
+        # If fullscreen is checked on Mac, we heavily prefer SDL
+        if profile.enable_fullscreen and "sdl" in caps.displays:
+            return f"sdl,show-cursor=on{gl_flag_std}"
+        # Otherwise fallback to Cocoa
+        return f"cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on{gl_flag_mac}"
+        
+    # Linux Defaults
+    if "gtk" in caps.displays:
+        return f"gtk,show-cursor=on{gl_flag_std}"
+    return f"sdl,show-cursor=on{gl_flag_std}"
 
 def _audio_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
     if not profile.enable_audio:
