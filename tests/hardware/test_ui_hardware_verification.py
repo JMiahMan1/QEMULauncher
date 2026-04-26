@@ -200,9 +200,10 @@ auto_launch_enabled = true
             set results to {}
             tell application "System Events"
                 set qemu_proc to first process whose name contains "qemu"
+                set the_pid to unix id of qemu_proc
                 set win_list to windows of qemu_proc
                 repeat with win in win_list
-                    set end of results to {value of attribute "AXFullScreen" of win, size of win, position of win, value of attribute "AXRole" of win, value of attribute "AXSubrole" of win}
+                    set end of results to {the_pid, value of attribute "AXFullScreen" of win, size of win, position of win, value of attribute "AXRole" of win, value of attribute "AXSubrole" of win}
                 end repeat
             end tell
             return results
@@ -210,23 +211,23 @@ auto_launch_enabled = true
             out, _ = run_applescript(script)
 
             # Find the largest window (the display)
-            # AppleScript returns something like "true, 1920, 1080, -1920, 0, AXWindow, AXStandardWindow, ..."
+            # Each window has 8 components: [PID, FS, W, H, X, Y, Role, Subrole]
             parts = out.replace("{", "").replace("}", "").split(", ")
             best_win = None
             max_area = 0
 
-            # Each window has 7 components in the flat list: [FS, W, H, X, Y, Role, Subrole]
-            for i in range(0, len(parts) - 6, 7):
+            for i in range(0, len(parts) - 7, 8):
                 try:
-                    fs = parts[i].strip()
-                    w = int(parts[i + 1])
-                    h = int(parts[i + 2])
-                    x = int(parts[i + 3])
-                    y = int(parts[i + 4])
-                    role = parts[i + 5].strip()
-                    subrole = parts[i + 6].strip()
+                    p_id = parts[i].strip()
+                    fs = parts[i + 1].strip()
+                    w = int(parts[i + 2])
+                    h = int(parts[i + 3])
+                    x = int(parts[i + 4])
+                    y = int(parts[i + 5])
+                    role = parts[i + 6].strip()
+                    subrole = parts[i + 7].strip()
 
-                    print(f"-> QEMU Win: {w}x{h} at ({x}, {y}) Role: {role}/{subrole} FS: {fs}")
+                    print(f"-> QEMU PID {p_id} Win: {w}x{h} at ({x}, {y}) Role: {role}/{subrole} FS: {fs}")
 
                     area = w * h
                     if area > max_area:
