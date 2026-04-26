@@ -135,7 +135,7 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
     cmd = " ".join(command)
     assert "-machine q35,accel=kvm:tcg" in cmd
     assert "-full-screen" in cmd
-    assert "gtk,gl=on" in cmd
+    assert "gtk,show-cursor=on,gl=on" in cmd
     assert "pipewire" in cmd
     assert "passt,id=net0" in cmd
     assert "cocoa" not in cmd
