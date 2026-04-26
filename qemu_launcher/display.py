@@ -27,6 +27,19 @@ def is_primary_display_name(name: str | None) -> bool:
     return name == PRIMARY_DISPLAY_NAME or name.endswith(" (Primary)")
 
 
+def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
+    """Return True if QEMU itself should handle the fullscreen transition."""
+    if not enable_fullscreen:
+        return False
+    # On Mac, Cocoa backend only handles Primary correctly.
+    # Secondary monitors on Mac use SDL + env var (handled in launch()).
+    if sys.platform == "darwin":
+        from .display import is_primary_display_name
+        return is_primary_display_name(target_display_name)
+    # On Linux, GTK/SDL handle fullscreen well natively if we pass the flag.
+    return True
+
+
 def get_display_index(target_name: str | None) -> int:
     """Return the system index of the display matching target_name."""
     if is_primary_display_name(target_name):

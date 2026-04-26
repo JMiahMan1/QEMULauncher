@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .capabilities import QemuCapabilities
     from .config import VMProfile
-from .display import arrange_window
+from .display import arrange_window, should_qemu_handle_fullscreen
 
 
 class ConfigurationError(Exception):
@@ -320,8 +320,7 @@ def build_command(
 
     if profile.enable_fullscreen and display != "none":
         # Only use internal fullscreen for primary display
-        from .display import is_primary_display_name
-        if is_primary_display_name(profile.target_display_name):
+        if should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen):
             command.append("-full-screen")
 
     if profile.firmware_path:
@@ -351,6 +350,18 @@ def build_command(
         command.extend(profile.extra_args)
 
     return command
+
+
+def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
+    """Return True if QEMU itself should handle the fullscreen transition."""
+    if not enable_fullscreen:
+        return False
+    # On Mac, Cocoa backend only handles Primary correctly. 
+    # Secondary monitors on Mac use SDL + env var (handled in launch()).
+    if sys.platform == "darwin":
+        return is_primary_display_name(target_display_name)
+    # On Linux, GTK/SDL handle fullscreen well natively if we pass the flag.
+    return True
 
 
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
