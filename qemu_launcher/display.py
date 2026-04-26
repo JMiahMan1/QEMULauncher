@@ -247,6 +247,9 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             for i, win in enumerate(windows):
                 e_pos, p_val = AXUIElementCopyAttributeValue(win, AX_POSITION, None)
                 e_size, s_val = AXUIElementCopyAttributeValue(win, AX_SIZE, None)
+                e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
+                e_subrole, subrole_val = AXUIElementCopyAttributeValue(win, "AXSubrole", None)
+
                 pos_str = "unknown"
                 size_str = "unknown"
                 if e_pos == 0 and p_val:
@@ -255,7 +258,9 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                 if e_size == 0 and s_val:
                     _, s = AXValueGetValue(s_val, kAXValueCGSizeType, None)
                     size_str = f"{s.width}x{s.height}"
-                logger.info(f"Detected Window[{i}]: size={size_str}, pos={pos_str}")
+                logger.info(
+                    f"Detected Window[{i}]: size={size_str}, pos={pos_str}, role={role_val}, subrole={subrole_val}"
+                )
 
             window = windows[0]
             logger.info("Located QEMU window element.")
