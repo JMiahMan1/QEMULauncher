@@ -96,13 +96,18 @@ class FullscreenOverlay(QWidget):
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
         self.on_stop = on_stop
-        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
+        # ToolTip usually has the highest z-order priority in Qt
+        flags = Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         if sys.platform.startswith("linux"):
             flags |= Qt.WindowType.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
         self.hide()
+
+        # Timer to persistently raise the window while it's shown
+        self._raise_timer = QTimer(self)
+        self._raise_timer.timeout.connect(self.raise_)
 
         if sys.platform == "darwin":
             _make_window_global_macos(int(self.winId()))
@@ -168,13 +173,20 @@ class FullscreenOverlay(QWidget):
 
     def _handle_exit(self) -> None:
         self.hide()
+        self._raise_timer.stop()
         if self.on_exit_fs:
             self.on_exit_fs()
 
     def _handle_stop(self) -> None:
         self.hide()
+        self._raise_timer.stop()
         if self.on_stop:
             self.on_stop()
+
+    def hide(self) -> None:
+        super().hide()
+        if hasattr(self, "_raise_timer"):
+            self._raise_timer.stop()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -195,6 +207,7 @@ class FullscreenOverlay(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        self._raise_timer.start(100) # Raise every 100ms
         self._hide_timer.start(60000) # Stay visible for 60s during boot
 
 

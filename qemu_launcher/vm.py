@@ -352,22 +352,13 @@ def build_command(
     return command
 
 
-def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
-    """Return True if QEMU itself should handle the fullscreen transition."""
-    if not enable_fullscreen:
-        return False
-    # On Mac, Cocoa backend only handles Primary correctly. 
-    # Secondary monitors on Mac use SDL + env var (handled in launch()).
-    if sys.platform == "darwin":
-        return is_primary_display_name(target_display_name)
-    # On Linux, GTK/SDL handle fullscreen well natively if we pass the flag.
-    return True
+
 
 
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     if platform == "darwin":
-        if profile.enable_fullscreen and not is_primary_display_name(profile.target_display_name):
-            # SDL is better at monitor selection on Mac via env vars
+        if profile.enable_fullscreen:
+            # SDL is much more predictable for fullscreen transitions and monitor targeting on Mac
             if "sdl" in caps.displays:
                 return "sdl,show-cursor=on"
         return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on"
