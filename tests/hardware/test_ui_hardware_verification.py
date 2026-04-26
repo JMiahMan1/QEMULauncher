@@ -157,8 +157,8 @@ auto_launch_enabled = true
     # We rely on auto-launch now since xdotool/AppleScript can be flaky
     
     # 6. Verify VM Deep Boot
-    print("-> Waiting for VM stabilization...")
-    time.sleep(10)
+    print("-> Waiting for VM stabilization (40s)...")
+    time.sleep(40)
 
     # QMP path uses profile_id which is 'smoke_test'
     qmp_path = runtime_root / "profiles" / "smoke_test" / "qmp.sock"

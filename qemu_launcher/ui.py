@@ -195,7 +195,7 @@ class FullscreenOverlay(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        self._hide_timer.start(30000) # Stay visible for 30s during boot
+        self._hide_timer.start(60000) # Stay visible for 60s during boot
 
 
 class HotEdgeTrigger(QWidget):
@@ -871,17 +871,22 @@ class MainWindow(QMainWindow):
                 
                 # 2. Trigger fullscreen via QMP if requested
                 if profile.enable_fullscreen:
-                    time.sleep(2.0) # Give window time to appear
-                    controller.toggle_fullscreen()
                     self.hot_edge.show()
-                    # Show overlay immediately for 10s so user has an escape if boot fails
-                    self.fs_overlay.show_at_top()
+                    # We use a timer to trigger FS after a short delay to ensure window is ready
+                    QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
                 
                 self.status_label.setText(f"Launched {profile.name}")
             else:
                 self.status_label.setText(f"Failed to launch {profile.name}")
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
+
+    def _delayed_fullscreen(self, controller) -> None:
+        """Trigger fullscreen and show overlay after a short delay."""
+        if controller.is_running():
+            controller.toggle_fullscreen()
+            # Show overlay immediately so user has an escape path
+            self.fs_overlay.show_at_top()
 
     def _maybe_auto_launch_startup_profile(self) -> None:
         if self._startup_launch_done or not self.settings.auto_launch_enabled:
