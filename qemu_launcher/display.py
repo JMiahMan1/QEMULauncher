@@ -129,12 +129,24 @@ def _available_displays_macos() -> list[DisplayTarget]:
 
     main_display = Quartz.CGMainDisplayID()
 
+    # Create mapping from display ID to localized name using NSScreen
+    names = {}
+    try:
+        import AppKit
+
+        for screen in AppKit.NSScreen.screens():
+            desc = screen.deviceDescription()
+            d_id = desc.objectForKey_("NSScreenNumber")
+            names[d_id] = screen.localizedName()
+    except Exception:
+        pass
+
     for i in range(display_count):
         display_id = online_displays[i]
         bounds = Quartz.CGDisplayBounds(display_id)
 
-        # Determine name (simplified)
-        name = f"Display {i + 1}"
+        # Determine name
+        name = names.get(display_id, f"Display {i + 1}")
         if display_id == main_display:
             name = f"{name} (Primary)"
 
