@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 
 def run_applescript(script):
     result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
@@ -39,7 +41,7 @@ def check_qmp_running(qmp_path):
         print(f"QMP Check Error: {e}")
         return False
 
-
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Hardware UI tests require a physical graphical session.")
 def test_ui_workflow():
     is_macos = sys.platform == "darwin"
     if is_macos:
