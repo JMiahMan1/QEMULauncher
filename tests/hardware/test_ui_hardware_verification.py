@@ -233,6 +233,12 @@ auto_launch_enabled = true
 
             if best_win:
                 fs, w, h, x, y = best_win
+                # Log all windows for debugging
+                for i in range(0, len(parts) - 4, 5):
+                    print(
+                        f"-> Found QEMU Window: {parts[i + 1]}x{parts[i + 2]} at ({parts[i + 3]}, {parts[i + 4]}) FS: {parts[i]}"
+                    )
+
                 # VG248 is at -1920. Allow some buffer.
                 if x < -1000:
                     print(f"SUCCESS: Target window found at ({x}, {y}) with size {w}x{h}. FS: {fs}")
