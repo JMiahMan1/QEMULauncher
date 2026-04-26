@@ -232,6 +232,19 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     while time.time() < deadline:
         err, windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, None)
         if err == 0 and windows and len(windows) > 0:
+            for i, win in enumerate(windows):
+                e_pos, p_val = AXUIElementCopyAttributeValue(win, AX_POSITION, None)
+                e_size, s_val = AXUIElementCopyAttributeValue(win, AX_SIZE, None)
+                pos_str = "unknown"
+                size_str = "unknown"
+                if e_pos == 0 and p_val:
+                    _, p = AXValueGetValue(p_val, kAXValueCGPointType, None)
+                    pos_str = f"({p.x}, {p.y})"
+                if e_size == 0 and s_val:
+                    _, s = AXValueGetValue(s_val, kAXValueCGSizeType, None)
+                    size_str = f"{s.width}x{s.height}"
+                logger.info(f"Detected Window[{i}]: size={size_str}, pos={pos_str}")
+
             window = windows[0]
             logger.info("Located QEMU window element.")
             break
