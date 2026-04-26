@@ -241,36 +241,37 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     window = None
     deadline = time.time() + 15.0
     while time.time() < deadline:
+        # 3a. Try AX first
         elements = []
         for attr in ["AXWindows", "AXChildren"]:
             err_v, vals = AXUIElementCopyAttributeValue(app, attr, None)
             if err_v == 0 and vals:
                 elements.extend(vals)
 
-        if elements:
-            for i, win in enumerate(elements):
-                e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
-                e_pos, p_val = AXUIElementCopyAttributeValue(win, "AXPosition", None)
-                e_size, s_val = AXUIElementCopyAttributeValue(win, "AXSize", None)
-
-                pos_str = "unknown"
-                size_str = "unknown"
-                if e_pos == 0 and p_val:
-                    _, p = AXValueGetValue(p_val, kAXValueCGPointType, None)
-                    pos_str = f"({p.x}, {p.y})"
-                if e_size == 0 and s_val:
-                    _, s = AXValueGetValue(s_val, kAXValueCGSizeType, None)
-                    size_str = f"{s.width}x{s.height}"
-
-                logger.info(f"Detected element[{i}]: role={role_val}, size={size_str}, pos={pos_str}")
-
-                if role_val == "AXWindow":
-                    window = win
-                    logger.info("Located QEMU display window.")
-                    break
-
-            if window:
+        for i, win in enumerate(elements):
+            e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
+            if role_val == "AXWindow":
+                window = win
+                logger.info("Located QEMU display window via AX.")
                 break
+
+        if window:
+            break
+
+        # 3b. Fallback: Use Quartz to find the window handle if AX is blind
+        # This gives us the window ID which we might be able to use?
+        # Actually, we need an AXUIElement to move it.
+        # So we'll keep trying AX but maybe the window is delayed.
+
+        # Log Quartz info for debugging
+        window_list = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID)
+        for win_info in window_list:
+            if win_info.get(Quartz.kCGWindowOwnerPID) == pid:
+                w_id = win_info.get(Quartz.kCGWindowNumber)
+                w_name = win_info.get(Quartz.kCGWindowName, "")
+                w_bounds = win_info.get(Quartz.kCGWindowBounds)
+                logger.info(f"Quartz saw window for PID {pid}: ID={w_id}, Name='{w_name}', Bounds={w_bounds}")
+
         time.sleep(0.5)
 
     if not window:
