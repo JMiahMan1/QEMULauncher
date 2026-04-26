@@ -201,6 +201,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             AXUIElementCreateApplication,
             AXUIElementSetAttributeValue,
             AXValueCreate,
+            AXValueGetValue,
             kAXFrontmostAttribute,
             kAXTrustedCheckOptionPrompt,
             kAXValueCGPointType,
@@ -244,28 +245,40 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    # 5. Set Position (Proven Pattern)
-    logger.info(f"Setting position to ({target.x}, {target.y})")
-    pos = Quartz.CGPoint(x=target.x, y=target.y)
-    ax_pos = AXValueCreate(kAXValueCGPointType, pos)
-    err_pos = AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
+    # 5. Set Position & Size with Retry Loop
+    # Sometimes macOS ignores the first attempt if the window is still initializing
+    success_move = False
+    deadline_move = time.time() + 5.0
+    while time.time() < deadline_move:
+        logger.info(f"Attempting to set position to ({target.x}, {target.y})")
+        pos = Quartz.CGPoint(x=target.x, y=target.y)
+        ax_pos = AXValueCreate(kAXValueCGPointType, pos)
+        AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
 
-    # 6. Set Size
-    logger.info(f"Setting size to ({target.width - 40}x{target.height - 40})")
-    size = Quartz.CGSize(width=target.width - 40, height=target.height - 40)
-    ax_size = AXValueCreate(kAXValueCGSizeType, size)
-    AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
+        size = Quartz.CGSize(width=target.width - 40, height=target.height - 40)
+        ax_size = AXValueCreate(kAXValueCGSizeType, size)
+        AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
 
-    # 7. Toggle Fullscreen if requested
+        # Check if it actually moved
+        err_check, current_pos_val = AXUIElementCopyAttributeValue(window, AX_POSITION, None)
+        if err_check == 0 and current_pos_val:
+            ok, current_pos = AXValueGetValue(current_pos_val, kAXValueCGPointType, None)
+            if ok and abs(current_pos.x - target.x) < 50:
+                logger.info(f"Confirmed window moved to {current_pos.x}, {current_pos.y}")
+                success_move = True
+                break
+
+        time.sleep(0.5)
+
+    # 6. Toggle Fullscreen if requested
     if fullscreen:
         logger.info("Requesting fullscreen toggle.")
-        # Give a moment for the move to settle
         time.sleep(1.0)
         AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
 
-    if err_pos != 0:
-        logger.error(f"AXUIElementSetAttributeValue returned error: {err_pos}")
-        return f"macOS AX placement returned error code: {err_pos}"
+    if not success_move:
+        logger.error("Failed to move window to target monitor after multiple attempts.")
+        return "macOS AX placement failed to verify move."
 
     logger.info("Window arrangement complete.")
     return None
