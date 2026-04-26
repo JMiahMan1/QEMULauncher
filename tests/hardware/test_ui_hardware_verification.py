@@ -67,12 +67,6 @@ def test_ui_workflow():
     runtime_root = test_root / "runtime"
     state_dir = test_root / "state"
 
-    if is_macos:
-        app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
-    else:
-        # Linux
-        pass
-
     # 1. Create Profiles
     print("-> Preparing Multi-Arch environment...")
     import platform as py_platform

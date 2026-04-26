@@ -5,6 +5,7 @@ __pycache__/
 *.app
 build/
 dist/
+scratch/
 *.spec
 .Python
 .env
