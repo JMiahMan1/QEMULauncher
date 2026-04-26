@@ -76,6 +76,7 @@ class VMController:
                 command.extend(["-full-screen"])
 
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
+            logger.info(f"Running command: {' '.join(command)}")
             self.process = subprocess.Popen(
                 command,
                 env=env,
