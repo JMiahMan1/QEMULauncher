@@ -144,11 +144,16 @@ auto_launch_enabled = true
     # 4. Launch UI
     print("-> Launching QEMU Launcher UI (with 60s auto-kill safety)...")
     env = os.environ.copy()
-    if is_macos:
-        bin_path = f"{app_path}/Contents/MacOS/QEMU Launcher"
-        proc = subprocess.Popen([bin_path], env=env, start_new_session=True)
-    else:
-        proc = subprocess.Popen([sys.executable, app_path], env=env, start_new_session=True)
+    # Ensure child app uses the same PYTHONPATH
+    env["PYTHONPATH"] = os.getcwd() + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+    
+    # Always run from source during hardware verification to ensure latest code
+    app_module = "qemu_launcher.app"
+    proc = subprocess.Popen([sys.executable, "-m", app_module, 
+                             "--config", str(config_root),
+                             "--state", str(state_dir),
+                             "--runtime", str(runtime_root)], 
+                             env=env, start_new_session=True)
 
     # We'll wait manually but the finally block will kill proc
     time.sleep(5)
