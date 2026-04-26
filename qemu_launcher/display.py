@@ -190,6 +190,7 @@ def _find_wmctrl_window_id(pid: int, timeout: float = 10.0) -> str | None:
 
 def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
     """Move and optionally fullscreen the QEMU window on macOS using native AX API."""
+    logger.info(f"Arranging window for PID {pid} on display {target.name} (FS={fullscreen})")
     try:
         from ApplicationServices import (
             AXIsProcessTrustedWithOptions,
@@ -208,11 +209,13 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
         )
         import Quartz
     except Exception as exc:
+        logger.error(f"Failed to import ApplicationServices/Quartz: {exc}")
         return f"macOS display placement unavailable: {exc}"
 
     # 1. Check/Prompt for permissions
     options = {kAXTrustedCheckOptionPrompt: True}
     if not AXIsProcessTrustedWithOptions(options):
+        logger.warning("Accessibility permissions NOT granted.")
         return "Grant Accessibility permission in System Settings to enable display placement."
 
     # 2. Create the AX application element
@@ -225,10 +228,12 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
         err, windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, None)
         if err == 0 and windows and len(windows) > 0:
             window = windows[0]
+            logger.info("Located QEMU window element.")
             break
         time.sleep(0.5)
     
     if not window:
+        logger.error("Timed out waiting for QEMU window to appear.")
         return "Timeout waiting for QEMU window to appear on macOS."
 
     # 4. Bring to front
@@ -236,26 +241,29 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     time.sleep(0.5)
 
     # 5. Set Position (Proven Pattern)
-    # Using target.x/y directly as they are already in logical points from Quartz
+    logger.info(f"Setting position to ({target.x}, {target.y})")
     pos = Quartz.CGPoint(x=target.x, y=target.y)
     ax_pos = AXValueCreate(kAXValueCGPointType, pos)
     err_pos = AXUIElementSetAttributeValue(window, kAXPositionAttribute, ax_pos)
     
     # 6. Set Size
-    # We set it slightly smaller than the monitor to ensure the OS accepts the move
+    logger.info(f"Setting size to ({target.width-40}x{target.height-40})")
     size = Quartz.CGSize(width=target.width - 40, height=target.height - 40)
     ax_size = AXValueCreate(kAXValueCGSizeType, size)
     AXUIElementSetAttributeValue(window, kAXSizeAttribute, ax_size)
 
     # 7. Toggle Fullscreen if requested
     if fullscreen:
+        logger.info("Requesting fullscreen toggle.")
         # Give a moment for the move to settle
         time.sleep(1.0)
         AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
     
     if err_pos != 0:
+        logger.error(f"AXUIElementSetAttributeValue returned error: {err_pos}")
         return f"macOS AX placement returned error code: {err_pos}"
-        
+    
+    logger.info("Window arrangement complete.")
     return None
 
 
