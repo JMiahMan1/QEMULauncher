@@ -69,6 +69,7 @@ class VMController:
             from .display import get_display_index
 
             display_idx = get_display_index(self.profile.target_display_name)
+            logger.info(f"Targeting display index {display_idx} for SDL (Name: {self.profile.target_display_name})")
             env["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(display_idx)
             # SDL also needs full-screen argument to honor the env var correctly in some versions
             if "sdl" in _display_args(self.profile, self.capabilities, self.host_platform):
