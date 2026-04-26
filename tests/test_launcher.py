@@ -143,7 +143,10 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
     assert "virtio-9p-pci" in cmd
 
 
-def test_macos_command_uses_macos_backends(tmp_path: Path):
+def test_macos_command_uses_macos_backends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Tell vm.py to bypass the physical helper check during the test
+    monkeypatch.setenv("QEMU_LAUNCHER_TEST", "1")
+    
     profile = VMProfile(
         name="macOS VM",
         architecture="aarch64",
