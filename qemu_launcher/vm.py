@@ -47,6 +47,7 @@ class VMController:
         self.artifacts.qmp_socket.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts.pidfile.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts.log_file.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Launching profile {self.profile.name} (ID: {self.profile.profile_id})")
         self.artifacts.stderr_log_file.parent.mkdir(parents=True, exist_ok=True)
 
         command = build_command(
@@ -199,9 +200,14 @@ class VMController:
         return "\n".join(parts)
 
     def _start_display_arrangement(self) -> None:
-        if not self.profile.target_display_name or should_qemu_handle_fullscreen(
-            self.profile.target_display_name, self.profile.enable_fullscreen
-        ):
+        target = self.profile.target_display_name
+        enabled = self.profile.enable_fullscreen
+        logger.info(f"Display arrangement: target='{target}', enabled={enabled}")
+
+        should_qemu = should_qemu_handle_fullscreen(target, enabled)
+        logger.info(f"should_qemu_handle_fullscreen: {should_qemu}")
+
+        if not target or should_qemu:
             self.display_note = None
             return
         self.display_note = (
