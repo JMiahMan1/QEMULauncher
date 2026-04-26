@@ -112,7 +112,7 @@ target_display_name = "{display}"
 
     # Target display from env or default
     target_display = os.environ.get("TEST_DISPLAY", "VG248" if is_macos else "Primary Display")
-    create_profile("Smoke Test", native_qemu, native_img, fullscreen=True, display=target_display)
+    create_profile("Smoke Test", native_qemu, native_img, fullscreen=False, display=target_display)
 
     # 2. Update settings.toml
     print(f"-> Seeding settings.toml at {config_root}...")
@@ -179,4 +179,11 @@ auto_launch_enabled = true
 
 if __name__ == "__main__":
     import shutil
-    test_ui_workflow()
+    try:
+        test_ui_workflow()
+    finally:
+        print("-> Cleaning up test processes...")
+        if sys.platform == "darwin":
+            subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
+        subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)

@@ -868,6 +868,8 @@ class MainWindow(QMainWindow):
                     time.sleep(2.0) # Give window time to appear
                     controller.toggle_fullscreen()
                     self.hot_edge.show()
+                    # Show overlay immediately for 10s so user has an escape if boot fails
+                    self.fs_overlay.show_at_top()
                 
                 self.status_label.setText(f"Launched {profile.name}")
             else:
