@@ -2,7 +2,7 @@
 
 # --- Configuration Variables ---
 APP_NAME="QEMU Launcher"
-APP_VERSION="${1:-1.0}"
+APP_VERSION="${1:-2.0}"
 OUTPUT_APP="$APP_NAME.app"
 PYTHON_BIN="${PYTHON:-python3}"
 
