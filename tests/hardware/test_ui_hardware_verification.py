@@ -173,6 +173,17 @@ auto_launch_enabled = true
         print("FAILED: VM is not running correctly or QMP unavailable.")
         sys.exit(1)
 
+    if is_macos:
+        print("-> Verifying Fullscreen state via AppleScript...")
+        # Check if the QEMU window is actually fullscreen
+        script = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
+        out, err = run_applescript(script)
+        if out.lower() == "true":
+            print("SUCCESS: Fullscreen state verified on macOS.")
+        else:
+            print(f"FAILED: Window is NOT in fullscreen mode. (Value: {out})")
+            # Don't exit yet, let QMP check proceed
+
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
 

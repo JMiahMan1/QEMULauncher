@@ -91,8 +91,8 @@ def _rich_list(title: str, items: list[str], empty_text: str) -> str:
 class FullscreenOverlay(QWidget):
     """The menu that appears when the hot edge is triggered."""
 
-    def __init__(self, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None, on_stop: Callable[[], None] | None = None) -> None:
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None, on_stop: Callable[[], None] | None = None) -> None:
+        super().__init__(parent)
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
         self.on_stop = on_stop
@@ -292,6 +292,7 @@ class MainWindow(QMainWindow):
         # Start the escape triggers on the correct monitor
         target_display = self._current_profile().target_display_name
         self.fs_overlay = FullscreenOverlay(
+            self,
             target_display, 
             on_exit_fs=self._exit_fullscreen,
             on_stop=self._stop_profile
