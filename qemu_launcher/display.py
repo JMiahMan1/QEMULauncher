@@ -253,11 +253,15 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
         logger.info(f"Attempting to set position to ({target.x}, {target.y})")
         pos = Quartz.CGPoint(x=target.x, y=target.y)
         ax_pos = AXValueCreate(kAXValueCGPointType, pos)
-        AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
+        err_pos = AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
+        if err_pos != 0:
+            logger.warning(f"AXUIElementSetAttributeValue(Position) returned {err_pos}")
 
         size = Quartz.CGSize(width=target.width - 40, height=target.height - 40)
         ax_size = AXValueCreate(kAXValueCGSizeType, size)
-        AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
+        err_size = AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
+        if err_size != 0:
+            logger.warning(f"AXUIElementSetAttributeValue(Size) returned {err_size}")
 
         # Check if it actually moved
         err_check, current_pos_val = AXUIElementCopyAttributeValue(window, AX_POSITION, None)
