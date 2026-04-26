@@ -123,6 +123,7 @@ def test_linux_command_uses_linux_backends(tmp_path: Path):
         network_mode="auto",
         shared_dir_path=str(shared),
         sharing_backend="auto",
+        graphics_mode="virtio-gl",
     )
     artifacts = RuntimeArtifacts(
         qmp_socket=tmp_path / "qmp.sock",
