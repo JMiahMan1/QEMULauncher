@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -34,7 +35,6 @@ def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullsc
     # On Mac, Cocoa backend only handles Primary correctly.
     # Secondary monitors on Mac use SDL + env var (handled in launch()).
     if sys.platform == "darwin":
-        from .display import is_primary_display_name
         return is_primary_display_name(target_display_name)
     # On Linux, GTK/SDL handle fullscreen well natively if we pass the flag.
     return True
@@ -267,7 +267,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
         """
         subprocess.run(["osascript", "-e", script], capture_output=True)
         time.sleep(1.0)
-        
+
         # Check again
         _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
         if is_fs:
@@ -326,7 +326,7 @@ def _set_fullscreen_linux(pid: int, enabled: bool) -> str | None:
     window_id = _find_wmctrl_window_id(pid)
     if not window_id:
         return "Unable to locate the QEMU window."
-    
+
     action = "add" if enabled else "remove"
     subprocess.run(
         ["wmctrl", "-i", "-r", window_id, "-b", f"{action},fullscreen"],

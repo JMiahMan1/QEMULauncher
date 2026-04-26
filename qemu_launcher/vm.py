@@ -54,13 +54,14 @@ class VMController:
             self.capabilities,
             self.artifacts,
             host_platform=self.host_platform,
-            restore_state=restore_state
+            restore_state=restore_state,
         )
         self.last_command = command
-        
+
         env = _clean_env()
         if self.host_platform == "darwin" and self.profile.enable_fullscreen:
             from .display import get_display_index
+
             display_idx = get_display_index(self.profile.target_display_name)
             env["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(display_idx)
             # SDL also needs full-screen argument to honor the env var correctly in some versions
@@ -103,25 +104,25 @@ class VMController:
         """Send a QMP command and return the response."""
         if not self.artifacts.qmp_socket.exists():
             return {"error": "QMP socket not found"}
-        
+
         payload = {"execute": command}
         if args:
             payload["arguments"] = args
-            
+
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.settimeout(2.0)
                 s.connect(str(self.artifacts.qmp_socket))
-                
+
                 # Receive greeting
                 greeting = s.recv(4096)
                 if not greeting:
                     return {"error": "No greeting from QMP"}
-                
+
                 # Enable capabilities
                 s.sendall(json.dumps({"execute": "qmp_capabilities"}).encode("utf-8") + b"\n")
-                resp = s.recv(4096)
-                
+                s.recv(4096)
+
                 # Send actual command
                 s.sendall(json.dumps(payload).encode("utf-8") + b"\n")
                 response_data = b""
@@ -140,9 +141,13 @@ class VMController:
         key_data = []
         for key in keys:
             key_data.append({"type": "qcode", "data": key})
-        self._qmp_command("input-send-event", {"events": [{"type": "key", "data": {"down": True, "key": k}} for k in key_data]})
+        self._qmp_command(
+            "input-send-event", {"events": [{"type": "key", "data": {"down": True, "key": k}} for k in key_data]}
+        )
         time.sleep(0.1)
-        self._qmp_command("input-send-event", {"events": [{"type": "key", "data": {"down": False, "key": k}} for k in key_data]})
+        self._qmp_command(
+            "input-send-event", {"events": [{"type": "key", "data": {"down": False, "key": k}} for k in key_data]}
+        )
 
     def toggle_fullscreen(self) -> None:
         """Toggle fullscreen mode via QMP key injection."""
@@ -250,14 +255,14 @@ class VMController:
         pid = self._read_pid()
         if pid:
             try:
-                os.kill(pid, 15) # SIGTERM
+                os.kill(pid, 15)  # SIGTERM
                 time.sleep(0.5)
-                os.kill(pid, 9) # SIGKILL
+                os.kill(pid, 9)  # SIGKILL
             except ProcessLookupError:
                 pass
             except Exception:
                 pass
-        
+
         # 4. Remove socket/pid files
         try:
             if self.artifacts.qmp_socket.exists():
@@ -352,9 +357,6 @@ def build_command(
     return command
 
 
-
-
-
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     if platform == "darwin":
         if profile.enable_fullscreen:
@@ -390,8 +392,10 @@ def _sharing_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
     tag = profile.mount_tag or "host_share"
     if mode == "9p":
         return [
-            "-device", f"virtio-9p-pci,fsdev=shared0,mount_tag={tag}",
-            "-fsdev", f"local,id=shared0,path={profile.shared_dir_path},security_model=none"
+            "-device",
+            f"virtio-9p-pci,fsdev=shared0,mount_tag={tag}",
+            "-fsdev",
+            f"local,id=shared0,path={profile.shared_dir_path},security_model=none",
         ]
     return []
 
@@ -427,7 +431,7 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
             if not is_test:
                 arg = "shared" if mode == "vmnet-shared" else "bridged"
                 raw_interface = profile.bridge_interface.split()[0] if profile.bridge_interface else ""
-                
+
                 if mode == "vmnet-bridged" and raw_interface:
                     subprocess.Popen(
                         [helper_path, arg, raw_interface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -471,6 +475,7 @@ def _ensure_helper_installed() -> bool:
     # 2. macOS bundle Resources (via NSBundle)
     try:
         from AppKit import NSBundle
+
         res_path = NSBundle.mainBundle().resourcePath()
         if res_path:
             search_paths.append(Path(res_path) / "qemu-launcher-helper")
@@ -501,8 +506,10 @@ def _ensure_helper_installed() -> bool:
         return False
 
     # Perform the installation via osascript with administrator privileges
-    cmd = f"mkdir -p /usr/local/bin && cp '{bundled_helper}' '{target_path}' && " \
-          f"chown root '{target_path}' && chmod 4755 '{target_path}'"
+    cmd = (
+        f"mkdir -p /usr/local/bin && cp '{bundled_helper}' '{target_path}' && "
+        f"chown root '{target_path}' && chmod 4755 '{target_path}'"
+    )
     script = f'do shell script "{cmd}" with administrator privileges'
     try:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True)

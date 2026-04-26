@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Use a file lock to prevent multiple instances
     import fcntl
+
     try:
         lock_f = open(lock_file, "w")
         fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -41,14 +42,12 @@ def main(argv: list[str] | None = None) -> int:
         print("Another instance is already running. Exiting.", file=sys.stderr)
         return 1
     import logging
+
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(paths.logs_dir / "app.log"),
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=[logging.FileHandler(paths.logs_dir / "app.log"), logging.StreamHandler(sys.stdout)],
     )
     logger = logging.getLogger("qemu-launcher")
     logger.info(f"Application starting... Logs at: {paths.logs_dir / 'app.log'}")

@@ -1,10 +1,7 @@
 import logging
 import sys
-import time
 from pathlib import Path
 from typing import Callable
-
-logger = logging.getLogger("qemu-launcher")
 
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QGuiApplication
@@ -13,8 +10,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QFrame,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -46,7 +43,15 @@ from .config import (
     save_settings,
 )
 from .display import PRIMARY_DISPLAY_NAME, available_displays
-from .vm import ConfigurationError, VMController, profile_readiness, resolve_sharing, shell_join
+from .vm import (
+    ConfigurationError,
+    VMController,
+    profile_readiness,
+    resolve_sharing,
+    shell_join,
+)
+
+logger = logging.getLogger("qemu-launcher")
 
 
 def detect_screens() -> list[str]:
@@ -91,7 +96,13 @@ def _rich_list(title: str, items: list[str], empty_text: str) -> str:
 class FullscreenOverlay(QWidget):
     """The menu that appears when the hot edge is triggered."""
 
-    def __init__(self, parent: QWidget | None = None, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None, on_stop: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        target_display_name: str | None = None,
+        on_exit_fs: Callable[[], None] | None = None,
+        on_stop: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
@@ -139,7 +150,7 @@ class FullscreenOverlay(QWidget):
             help_text += "Cmd+F: Toggle Fullscreen<br>Ctrl+Alt+G: Release Mouse"
         else:
             help_text += "Ctrl+Alt+F: Toggle Fullscreen<br>Ctrl+Alt+G: Release Mouse"
-        
+
         self.help_label = QLabel(help_text)
         self.help_label.setStyleSheet("color: #ccc; font-size: 11px;")
         self.help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -207,8 +218,8 @@ class FullscreenOverlay(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        self._raise_timer.start(100) # Raise every 100ms
-        self._hide_timer.start(60000) # Stay visible for 60s during boot
+        self._raise_timer.start(100)  # Raise every 100ms
+        self._hide_timer.start(60000)  # Stay visible for 60s during boot
 
 
 class HotEdgeTrigger(QWidget):
@@ -260,7 +271,7 @@ class HotEdgeTrigger(QWidget):
         geom = screen.geometry()
         # On Linux, make it full width to be easier to hit if mouse is weird
         width = geom.width() if sys.platform.startswith("linux") else 400
-        height = 1 if sys.platform.startswith("linux") else 10 # 1px is enough to trigger but less intrusive
+        height = 1 if sys.platform.startswith("linux") else 10  # 1px is enough to trigger but less intrusive
         self.setGeometry(
             geom.x() + (geom.width() - width) // 2,
             geom.y(),
@@ -271,6 +282,7 @@ class HotEdgeTrigger(QWidget):
     def _check_hover(self) -> None:
         """Poll cursor position to check for hover trigger."""
         from PySide6.QtGui import QCursor
+
         cursor_pos = QCursor.pos()
         if self.geometry().contains(cursor_pos):
             if self.on_trigger:
@@ -292,10 +304,7 @@ class MainWindow(QMainWindow):
         # Start the escape triggers on the correct monitor
         target_display = self._current_profile().target_display_name
         self.fs_overlay = FullscreenOverlay(
-            self,
-            target_display, 
-            on_exit_fs=self._exit_fullscreen,
-            on_stop=self._stop_profile
+            self, target_display, on_exit_fs=self._exit_fullscreen, on_stop=self._stop_profile
         )
         self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self.fs_overlay.show_at_top)
 
@@ -308,6 +317,7 @@ class MainWindow(QMainWindow):
         """Centralized factory for VMController with correct dependencies."""
         from .capabilities import probe_qemu
         from .vm import RuntimeArtifacts
+
         capabilities = probe_qemu(profile.qemu_executable)
         artifacts = RuntimeArtifacts(
             qmp_socket=self.paths.qmp_socket(profile.profile_id),
@@ -826,9 +836,7 @@ class MainWindow(QMainWindow):
                 else f"Target display: {profile.target_display_name}. Host-side placement is used after launch."
             )
             self.display_info_label.setText(display_note)
-            self.readiness_summary_label.setText(
-                "READY" if not issues else "ATTENTION REQUIRED"
-            )
+            self.readiness_summary_label.setText("READY" if not issues else "ATTENTION REQUIRED")
             self.readiness_issues_label.setText(
                 _rich_list("Fix Before Launch", issues, "The profile has the required basics.")
             )
@@ -863,6 +871,7 @@ class MainWindow(QMainWindow):
 
     def _launch_profile(self) -> None:
         import logging
+
         logger = logging.getLogger("qemu-launcher")
         logger.info(f"UI: Launching profile '{self.current_profile_id}'")
         if not self._save_current_profile():
@@ -881,14 +890,15 @@ class MainWindow(QMainWindow):
                 # 1. Arrange window (move to monitor)
                 # We pass fullscreen=False here because we'll trigger it via QMP
                 from .display import arrange_window
+
                 arrange_window(controller._read_pid(), profile.target_display_name, fullscreen=False)
-                
+
                 # 2. Trigger fullscreen via QMP if requested
                 if profile.enable_fullscreen:
                     self.hot_edge.show()
                     # We use a timer to trigger FS after a short delay to ensure window is ready
                     QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
-                
+
                 self.status_label.setText(f"Launched {profile.name}")
             else:
                 self.status_label.setText(f"Failed to launch {profile.name}")

@@ -6,8 +6,7 @@ from PySide6.QtWidgets import QApplication
 
 # Only run these tests on macOS with a GUI session
 pytestmark = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="Hardware UI tests require a physical macOS graphical session."
+    sys.platform != "darwin", reason="Hardware UI tests require a physical macOS graphical session."
 )
 
 try:
@@ -32,7 +31,6 @@ def test_hot_edge_window_level(app):
     # On macOS, verify the window level via ApplicationServices
     # This ensures it stays on top of QEMU's greedy Cocoa view
     if sys.platform == "darwin":
-
         from AppKit import NSStatusWindowLevel
         from objc import objc_object
 

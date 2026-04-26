@@ -93,12 +93,14 @@ def find_default_qemu(architecture: str) -> str:
 
 def detect_network_interfaces() -> list[str]:
     """Return a list of network interfaces suitable for bridging."""
-    interfaces: list[str] = ["en0", "en1", "eth0", "wlan0"] # Fallbacks
-    
+    interfaces: list[str] = ["en0", "en1", "eth0", "wlan0"]  # Fallbacks
+
     if sys.platform == "darwin":
         # On macOS, networksetup is the most descriptive
         try:
-            result = subprocess.run(["networksetup", "-listallhardwareports"], capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                ["networksetup", "-listallhardwareports"], capture_output=True, text=True, check=False
+            )
             if result.returncode == 0:
                 found = []
                 current_port = ""
@@ -113,13 +115,14 @@ def detect_network_interfaces() -> list[str]:
                     return found
         except Exception:
             pass
-            
+
     # Linux or fallback
     try:
         import os
+
         if os.path.isdir("/sys/class/net"):
             return sorted([d for d in os.listdir("/sys/class/net") if d != "lo"])
     except Exception:
         pass
-        
+
     return interfaces

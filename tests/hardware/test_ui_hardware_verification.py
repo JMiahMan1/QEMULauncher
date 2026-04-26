@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def run_applescript(script):
-    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     return result.stdout.strip(), result.stderr.strip()
 
 
@@ -45,14 +45,14 @@ def test_ui_workflow():
 
     is_macos = sys.platform == "darwin"
     home = os.environ.get("HOME")
-    
+
     # Use an isolated home for the test to avoid path naming drama (like spaces)
     test_root = Path("/tmp/qemu-launcher-test")
     if test_root.exists():
         shutil.rmtree(test_root)
     test_root.mkdir(parents=True)
     os.environ["QEMU_LAUNCHER_HOME"] = str(test_root)
-    
+
     # AppPaths logic says:
     config_root = test_root / "config"
     runtime_root = test_root / "runtime"
@@ -66,7 +66,8 @@ def test_ui_workflow():
     # 1. Create Profiles
     print("-> Preparing Multi-Arch environment...")
     import platform as py_platform
-    host_arch = py_platform.machine() # 'arm64' or 'x86_64'
+
+    host_arch = py_platform.machine()  # 'arm64' or 'x86_64'
     native_qemu = "aarch64" if (is_macos and host_arch == "arm64") else "x86_64"
 
     def get_cirros(arch):
@@ -87,7 +88,7 @@ def test_ui_workflow():
         if is_macos:
             qemu_bin = f"/opt/homebrew/bin/qemu-system-{arch}"
             if not os.path.exists(qemu_bin):
-                 qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
+                qemu_bin = f"/usr/local/bin/qemu-system-{arch}"
         else:
             qemu_bin = shutil.which(f"qemu-system-{arch}") or f"/usr/bin/qemu-system-{arch}"
 
@@ -132,12 +133,12 @@ auto_launch_enabled = true
         subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
     subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
     subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
-    
+
     # Remove lock file if it exists (though test_root is fresh)
     lock_file = config_root / "app.lock"
     if lock_file.exists():
         lock_file.unlink()
-    
+
     time.sleep(2)
 
     # 4. Launch UI
@@ -148,13 +149,13 @@ auto_launch_enabled = true
         proc = subprocess.Popen([bin_path], env=env, start_new_session=True)
     else:
         proc = subprocess.Popen([sys.executable, app_path], env=env, start_new_session=True)
-    
+
     # We'll wait manually but the finally block will kill proc
     time.sleep(5)
 
     # 5. Launch VM via UI (if auto-launch failed or for extra check)
     # We rely on auto-launch now since xdotool/AppleScript can be flaky
-    
+
     # 6. Verify VM Deep Boot
     print("-> Waiting for VM stabilization (40s)...")
     time.sleep(40)
@@ -167,28 +168,34 @@ auto_launch_enabled = true
         # Check logs if failed
         log_dir = test_root / "state" / "logs"
         if log_dir.exists():
-             app_log = log_dir / "app.log"
-             if app_log.exists():
-                 print(f"-> App Log tail:\n{app_log.read_text()[-500:]}")
+            app_log = log_dir / "app.log"
+            if app_log.exists():
+                print(f"-> App Log tail:\n{app_log.read_text()[-500:]}")
         print("FAILED: VM is not running correctly or QMP unavailable.")
         sys.exit(1)
 
     if is_macos:
-        print("-> Verifying Fullscreen state via AppleScript...")
-        # Check if the QEMU window is actually fullscreen
-        script = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
-        out, err = run_applescript(script)
-        if out.lower() == "true":
-            print("SUCCESS: Fullscreen state verified on macOS.")
-        else:
-            print(f"FAILED: Window is NOT in fullscreen mode. (Value: {out})")
-            # Don't exit yet, let QMP check proceed
+        print("-> Verifying Fullscreen state via AppleScript (with retries)...")
+        # Check if the QEMU window is actually fullscreen (retry for 10s)
+        success = False
+        for _ in range(10):
+            script = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
+            out, err = run_applescript(script)
+            if out.lower() == "true":
+                print("SUCCESS: Fullscreen state verified on macOS.")
+                success = True
+                break
+            time.sleep(1)
+        
+        if not success:
+            print(f"FAILED: Window is NOT in fullscreen mode after 10s. (Value: {out})")
 
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
 
 if __name__ == "__main__":
     import shutil
+
     try:
         test_ui_workflow()
     finally:
@@ -201,6 +208,6 @@ if __name__ == "__main__":
         else:
             subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
             subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
-        
+
         # Give it a moment
         time.sleep(1)
