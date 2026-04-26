@@ -71,9 +71,22 @@ class VMController:
             display_idx = get_display_index(self.profile.target_display_name)
             logger.info(f"Targeting display index {display_idx} for SDL (Name: {self.profile.target_display_name})")
             env["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(display_idx)
-            # SDL also needs full-screen argument to honor the env var correctly in some versions
-            if "sdl" in _display_args(self.profile, self.capabilities, self.host_platform):
-                command.extend(["-full-screen"])
+
+            # On macOS, if we are targeting a specific display that isn't the primary,
+            # we should NOT use -full-screen in the command line because it locks the window
+            # on the primary display before we can move it via AX.
+            is_primary = False
+            from .display import available_displays
+
+            displays = available_displays()
+            if display_idx < len(displays):
+                is_primary = displays[display_idx].primary
+
+            if is_primary:
+                if "sdl" in _display_args(self.profile, self.capabilities, self.host_platform):
+                    command.extend(["-full-screen"])
+            else:
+                logger.info("Non-primary display targeted on Mac; starting windowed to allow AX move.")
 
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
             logger.info(f"Running command: {' '.join(command)}")
