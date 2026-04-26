@@ -26,7 +26,12 @@ LEGACY_CONFIG_FILE = LEGACY_CONFIG_DIR / "config.ini"
 
 
 class AppPaths:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config_dir: str | Path | None = None,
+        state_dir: str | Path | None = None,
+        runtime_dir: str | Path | None = None,
+    ) -> None:
         override_root = os.environ.get("QEMU_LAUNCHER_HOME")
         if override_root:
             root = Path(override_root)
@@ -41,6 +46,15 @@ class AppPaths:
             self.state_dir = Path(dirs.user_state_path)
             runtime = getattr(dirs, "user_runtime_path", None)
             self.runtime_dir = Path(runtime) if runtime else self.state_dir / "runtime"
+
+        # Explicit overrides
+        if config_dir:
+            self.config_dir = Path(config_dir)
+        if state_dir:
+            self.state_dir = Path(state_dir)
+        if runtime_dir:
+            self.runtime_dir = Path(runtime_dir)
+
         self.logs_dir = self.state_dir / "logs"
         self.profiles_dir = self.config_dir / "profiles"
         self.settings_file = self.config_dir / "settings.toml"

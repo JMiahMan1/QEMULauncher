@@ -57,7 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--launch", action="store_true", help="Launch the selected profile without opening the UI")
     parser.add_argument("--profile", help="Profile id or name")
     parser.add_argument("--integrity-check", action="store_true", help="Verify core modules load")
+    parser.add_argument("--config", help="Override config directory")
+    parser.add_argument("--state", help="Override state directory")
+    parser.add_argument("--runtime", help="Override runtime directory")
     args = parser.parse_args(argv)
+
+    # Re-initialize paths with overrides
+    paths = AppPaths(config_dir=args.config, state_dir=args.state, runtime_dir=args.runtime)
 
     if args.integrity_check:
         print("[INTEGRITY] Success: All core modules loaded.")

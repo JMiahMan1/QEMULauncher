@@ -147,14 +147,24 @@ auto_launch_enabled = true
     env = os.environ.copy()
     # Ensure child app uses the same PYTHONPATH
     env["PYTHONPATH"] = os.getcwd() + (":" + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-    
+
     # Always run from source during hardware verification to ensure latest code
     app_module = "qemu_launcher.app"
-    proc = subprocess.Popen([sys.executable, "-m", app_module, 
-                             "--config", str(config_root),
-                             "--state", str(state_dir),
-                             "--runtime", str(runtime_root)], 
-                             env=env, start_new_session=True)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            app_module,
+            "--config",
+            str(config_root),
+            "--state",
+            str(state_dir),
+            "--runtime",
+            str(runtime_root),
+        ],
+        env=env,
+        start_new_session=True,
+    )
 
     # We'll wait manually but the finally block will kill proc
     time.sleep(5)
