@@ -341,6 +341,18 @@ def build_command(
     display = _display_args(profile, caps, platform)
     command.extend(["-display", display])
 
+    if profile.graphics_mode in ("auto", "virtio"):
+        if profile.architecture == "aarch64":
+            # The 'virt' machine has no default graphics, keyboard, or mouse
+            command.extend([
+                "-device", "virtio-gpu-pci",
+                "-device", "virtio-keyboard-pci",
+                "-device", "virtio-tablet-pci"
+            ])
+        else:
+            # x86_64 q35 can use standard virtio-vga
+            command.extend(["-vga", "virtio"])
+
     command.extend(
         [
             "-pidfile",
