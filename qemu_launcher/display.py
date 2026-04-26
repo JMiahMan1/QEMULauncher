@@ -202,14 +202,16 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             AXUIElementSetAttributeValue,
             AXValueCreate,
             kAXFrontmostAttribute,
-            kAXFullScreenAttribute,
-            kAXPositionAttribute,
-            kAXSizeAttribute,
             kAXTrustedCheckOptionPrompt,
             kAXValueCGPointType,
             kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
+
+        # Accessibility attribute names are strings. Some bridge versions miss the constants.
+        AX_FULLSCREEN = "AXFullScreen"
+        AX_POSITION = "AXPosition"
+        AX_SIZE = "AXSize"
     except Exception as exc:
         logger.error(f"Failed to import ApplicationServices/Quartz: {exc}")
         return f"macOS display placement unavailable: {exc}"
@@ -246,20 +248,20 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     logger.info(f"Setting position to ({target.x}, {target.y})")
     pos = Quartz.CGPoint(x=target.x, y=target.y)
     ax_pos = AXValueCreate(kAXValueCGPointType, pos)
-    err_pos = AXUIElementSetAttributeValue(window, kAXPositionAttribute, ax_pos)
+    err_pos = AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
 
     # 6. Set Size
     logger.info(f"Setting size to ({target.width - 40}x{target.height - 40})")
     size = Quartz.CGSize(width=target.width - 40, height=target.height - 40)
     ax_size = AXValueCreate(kAXValueCGSizeType, size)
-    AXUIElementSetAttributeValue(window, kAXSizeAttribute, ax_size)
+    AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
 
     # 7. Toggle Fullscreen if requested
     if fullscreen:
         logger.info("Requesting fullscreen toggle.")
         # Give a moment for the move to settle
         time.sleep(1.0)
-        AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
+        AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
 
     if err_pos != 0:
         logger.error(f"AXUIElementSetAttributeValue returned error: {err_pos}")
