@@ -141,16 +141,15 @@ auto_launch_enabled = true
     time.sleep(2)
 
     # 4. Launch UI
-    print("-> Launching QEMU Launcher UI...")
+    print("-> Launching QEMU Launcher UI (with 60s auto-kill safety)...")
     env = os.environ.copy()
     if is_macos:
-        # For macOS app bundle, we might need to set the env via 'open' or just run the binary
-        # Running the binary directly is easier for env passing
         bin_path = f"{app_path}/Contents/MacOS/QEMU Launcher"
-        subprocess.Popen([bin_path], env=env, start_new_session=True)
+        proc = subprocess.Popen([bin_path], env=env, start_new_session=True)
     else:
-        # Launch via python on Linux
-        subprocess.Popen([sys.executable, app_path], env=env, start_new_session=True)
+        proc = subprocess.Popen([sys.executable, app_path], env=env, start_new_session=True)
+    
+    # We'll wait manually but the finally block will kill proc
     time.sleep(5)
 
     # 5. Launch VM via UI (if auto-launch failed or for extra check)
@@ -182,8 +181,15 @@ if __name__ == "__main__":
     try:
         test_ui_workflow()
     finally:
-        print("-> Cleaning up test processes...")
+        print("-> Cleaning up all test processes (Aggressive)...")
+        # Kill everything
         if sys.platform == "darwin":
             subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
-        subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
-        subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
+            subprocess.run(["pkill", "-9", "qemu-system-x86_64"], capture_output=True)
+            subprocess.run(["pkill", "-9", "qemu-system-aarch64"], capture_output=True)
+        else:
+            subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
+            subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
+        
+        # Give it a moment
+        time.sleep(1)

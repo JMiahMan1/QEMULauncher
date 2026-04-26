@@ -27,10 +27,15 @@ def is_primary_display_name(name: str | None) -> bool:
     return name == PRIMARY_DISPLAY_NAME or name.endswith(" (Primary)")
 
 
-def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
-    # QEMU Cocoa's internal -full-screen only works reliably on the Primary display.
-    # For secondary displays, we launch windowed and use AX to move/resize.
-    return enable_fullscreen and is_primary_display_name(target_display_name)
+def get_display_index(target_name: str | None) -> int:
+    """Return the system index of the display matching target_name."""
+    if is_primary_display_name(target_name):
+        return 0
+    displays = available_displays()
+    for i, d in enumerate(displays):
+        if d.name == target_name:
+            return i
+    return 0
 
 
 def available_displays() -> list[DisplayTarget]:

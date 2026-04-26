@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .capabilities import QemuCapabilities
     from .config import VMProfile
-from .display import arrange_window, should_qemu_handle_fullscreen
+from .display import arrange_window
 
 
 class ConfigurationError(Exception):
@@ -57,10 +57,20 @@ class VMController:
             restore_state=restore_state
         )
         self.last_command = command
+        
+        env = _clean_env()
+        if self.host_platform == "darwin" and self.profile.enable_fullscreen:
+            from .display import get_display_index
+            display_idx = get_display_index(self.profile.target_display_name)
+            env["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(display_idx)
+            # SDL also needs full-screen argument to honor the env var correctly in some versions
+            if "sdl" in _display_args(self.profile, self.capabilities, self.host_platform):
+                command.extend(["-full-screen"])
+
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
             self.process = subprocess.Popen(
                 command,
-                env=_clean_env(),
+                env=env,
                 text=True,
                 stdout=subprocess.DEVNULL,
                 stderr=stderr_handle,
@@ -222,12 +232,41 @@ class VMController:
         return None
 
     def stop(self) -> None:
-        if self.process:
+        """Stop the VM aggressively and clean up."""
+        # 1. Try graceful QMP quit first if possible
+        if self.artifacts.qmp_socket.exists():
+            self._qmp_command("quit")
+            time.sleep(0.5)
+
+        # 2. Try process handle
+        if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
-                self.process.wait(timeout=5)
+                self.process.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+
+        # 3. Final cleanup via PID file
+        pid = self._read_pid()
+        if pid:
+            try:
+                os.kill(pid, 15) # SIGTERM
+                time.sleep(0.5)
+                os.kill(pid, 9) # SIGKILL
+            except ProcessLookupError:
+                pass
+            except Exception:
+                pass
+        
+        # 4. Remove socket/pid files
+        try:
+            if self.artifacts.qmp_socket.exists():
+                self.artifacts.qmp_socket.unlink()
+            if self.artifacts.pidfile.exists():
+                self.artifacts.pidfile.unlink()
+        except Exception:
+            pass
+
         self._stop_virtiofsd()
 
     def _start_virtiofsd(self) -> None:
@@ -281,7 +320,8 @@ def build_command(
 
     if profile.enable_fullscreen and display != "none":
         # Only use internal fullscreen for primary display
-        if should_qemu_handle_fullscreen(profile.target_display_name, profile.enable_fullscreen):
+        from .display import is_primary_display_name
+        if is_primary_display_name(profile.target_display_name):
             command.append("-full-screen")
 
     if profile.firmware_path:
@@ -315,11 +355,14 @@ def build_command(
 
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     if platform == "darwin":
-        # Always use zoom-to-fit to enable resizable styleMask in Cocoa
+        if profile.enable_fullscreen and not is_primary_display_name(profile.target_display_name):
+            # SDL is better at monitor selection on Mac via env vars
+            if "sdl" in caps.displays:
+                return "sdl,show-cursor=on"
         return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on"
     if "gtk" in caps.displays:
-        return "gtk,gl=on"
-    return "sdl"
+        return "gtk,gl=on,show-cursor=on"
+    return "sdl,show-cursor=on"
 
 
 def _audio_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
