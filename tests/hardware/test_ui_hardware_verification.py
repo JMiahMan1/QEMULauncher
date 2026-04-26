@@ -55,8 +55,6 @@ def test_ui_workflow():
             return
 
     print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
-    home = os.environ.get("HOME")
-
     # Use an isolated home for the test to avoid path naming drama (like spaces)
     test_root = Path("/tmp/qemu-launcher-test")
     if test_root.exists():
@@ -73,7 +71,7 @@ def test_ui_workflow():
         app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
     else:
         # Linux
-        app_path = os.getcwd() + "/qemu_app.py"
+        pass
 
     # 1. Create Profiles
     print("-> Preparing Multi-Arch environment...")
@@ -161,7 +159,7 @@ auto_launch_enabled = true
 
     # Always run from source during hardware verification to ensure latest code
     app_module = "qemu_launcher.app"
-    proc = subprocess.Popen(
+    subprocess.Popen(
         [
             sys.executable,
             "-m",
@@ -262,7 +260,7 @@ auto_launch_enabled = true
             time.sleep(1)
 
         if not success:
-            print(f"FAILED: Window verification failed after 10s.")
+            print("FAILED: Window verification failed after 10s.")
 
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
