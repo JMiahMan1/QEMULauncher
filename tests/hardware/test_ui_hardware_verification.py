@@ -196,14 +196,13 @@ auto_launch_enabled = true
         success = False
         print("-> Querying all QEMU windows...")
         for _ in range(10):
-            # Get list of all windows with their properties
             script = """
             set results to {}
             tell application "System Events"
                 set qemu_proc to first process whose name contains "qemu"
                 set win_list to windows of qemu_proc
                 repeat with win in win_list
-                    set end of results to {value of attribute "AXFullScreen" of win, size of win, position of win}
+                    set end of results to {value of attribute "AXFullScreen" of win, size of win, position of win, value of attribute "AXRole" of win, value of attribute "AXSubrole" of win}
                 end repeat
             end tell
             return results
@@ -211,19 +210,24 @@ auto_launch_enabled = true
             out, _ = run_applescript(script)
 
             # Find the largest window (the display)
-            # AppleScript returns something like "true, 1920, 1080, -1920, 0, false, 200, 100, 0, 0"
+            # AppleScript returns something like "true, 1920, 1080, -1920, 0, AXWindow, AXStandardWindow, ..."
             parts = out.replace("{", "").replace("}", "").split(", ")
             best_win = None
             max_area = 0
 
-            # Each window has 5 components in the flat list: [FS, W, H, X, Y]
-            for i in range(0, len(parts) - 4, 5):
+            # Each window has 7 components in the flat list: [FS, W, H, X, Y, Role, Subrole]
+            for i in range(0, len(parts) - 6, 7):
                 try:
                     fs = parts[i].strip()
                     w = int(parts[i + 1])
                     h = int(parts[i + 2])
                     x = int(parts[i + 3])
                     y = int(parts[i + 4])
+                    role = parts[i + 5].strip()
+                    subrole = parts[i + 6].strip()
+
+                    print(f"-> QEMU Win: {w}x{h} at ({x}, {y}) Role: {role}/{subrole} FS: {fs}")
+
                     area = w * h
                     if area > max_area:
                         max_area = area
@@ -233,12 +237,6 @@ auto_launch_enabled = true
 
             if best_win:
                 fs, w, h, x, y = best_win
-                # Log all windows for debugging
-                for i in range(0, len(parts) - 4, 5):
-                    print(
-                        f"-> Found QEMU Window: {parts[i + 1]}x{parts[i + 2]} at ({parts[i + 3]}, {parts[i + 4]}) FS: {parts[i]}"
-                    )
-
                 # VG248 is at -1920. Allow some buffer.
                 if x < -1000:
                     print(f"SUCCESS: Target window found at ({x}, {y}) with size {w}x{h}. FS: {fs}")
