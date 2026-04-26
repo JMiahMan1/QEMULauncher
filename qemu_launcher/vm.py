@@ -262,8 +262,11 @@ class VMController:
                 pass
         return None
 
-    def stop(self) -> None:
+    def stop(self, save_state: bool = False) -> None:
         """Stop the VM aggressively and clean up."""
+        if save_state:
+            self.save_state()
+
         # 1. Try graceful QMP quit first if possible
         if self.artifacts.qmp_socket.exists():
             self._qmp_command("quit")
