@@ -1,7 +1,7 @@
-from __future__ import annotations
-
+import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import threading
@@ -88,6 +88,60 @@ class VMController:
             return "qemu" in result.stdout.lower()
         except Exception:
             return False
+
+    def _qmp_command(self, command: str, args: dict | None = None) -> dict:
+        """Send a QMP command and return the response."""
+        if not self.artifacts.qmp_socket.exists():
+            return {"error": "QMP socket not found"}
+        
+        payload = {"execute": command}
+        if args:
+            payload["arguments"] = args
+            
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(2.0)
+                s.connect(str(self.artifacts.qmp_socket))
+                
+                # Receive greeting
+                greeting = s.recv(4096)
+                if not greeting:
+                    return {"error": "No greeting from QMP"}
+                
+                # Enable capabilities
+                s.sendall(json.dumps({"execute": "qmp_capabilities"}).encode("utf-8") + b"\n")
+                resp = s.recv(4096)
+                
+                # Send actual command
+                s.sendall(json.dumps(payload).encode("utf-8") + b"\n")
+                response_data = b""
+                while True:
+                    chunk = s.recv(4096)
+                    response_data += chunk
+                    if b"\n" in response_data:
+                        break
+                return json.loads(response_data.decode("utf-8"))
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def send_key(self, keys: list[str]) -> None:
+        """Send a list of keys to the VM via QMP (e.g., ['ctrl', 'alt', 'f'])."""
+        # QMP input-send-event uses key names
+        key_data = []
+        for key in keys:
+            key_data.append({"type": "qcode", "data": key})
+        self._qmp_command("input-send-event", {"events": [{"type": "key", "data": {"down": True, "key": k}} for k in key_data]})
+        time.sleep(0.1)
+        self._qmp_command("input-send-event", {"events": [{"type": "key", "data": {"down": False, "key": k}} for k in key_data]})
+
+    def toggle_fullscreen(self) -> None:
+        """Toggle fullscreen mode via QMP key injection."""
+        if self.host_platform == "darwin":
+            # Mac Cocoa uses Cmd+F
+            self.send_key(["meta", "f"])
+        else:
+            # GTK/SDL uses Ctrl+Alt+F
+            self.send_key(["ctrl", "alt", "f"])
 
     def status(self) -> dict:
         """Query QEMU for the current status via QMP."""

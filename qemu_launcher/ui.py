@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -89,10 +91,11 @@ def _rich_list(title: str, items: list[str], empty_text: str) -> str:
 class FullscreenOverlay(QWidget):
     """The menu that appears when the hot edge is triggered."""
 
-    def __init__(self, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None) -> None:
+    def __init__(self, target_display_name: str | None = None, on_exit_fs: Callable[[], None] | None = None, on_stop: Callable[[], None] | None = None) -> None:
         super().__init__()
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
+        self.on_stop = on_stop
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
@@ -102,41 +105,73 @@ class FullscreenOverlay(QWidget):
             _make_window_global_macos(int(self.winId()))
 
     def _init_ui(self) -> None:
-        self.setFixedSize(180, 50)
+        self.setFixedSize(220, 140)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        self.button = QPushButton("Exit Fullscreen")
-        self.button.setCursor(Qt.PointingHandCursor)
-        self.button.clicked.connect(self._handle_click)
-        self.button.setStyleSheet(
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        # Container for styling
+        container = QFrame()
+        container.setObjectName("container")
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.exit_button = QPushButton("Exit Fullscreen")
+        self.exit_button.clicked.connect(self._handle_exit)
+        container_layout.addWidget(self.exit_button)
+
+        self.stop_button = QPushButton("Stop VM")
+        self.stop_button.clicked.connect(self._handle_stop)
+        self.stop_button.setStyleSheet("background-color: rgba(180, 50, 50, 200);")
+        container_layout.addWidget(self.stop_button)
+
+        help_text = "<b>Hotkeys:</b><br>"
+        if sys.platform == "darwin":
+            help_text += "Cmd+F: Toggle Fullscreen<br>Ctrl+Alt+G: Release Mouse"
+        else:
+            help_text += "Ctrl+Alt+F: Toggle Fullscreen<br>Ctrl+Alt+G: Release Mouse"
+        
+        self.help_label = QLabel(help_text)
+        self.help_label.setStyleSheet("color: #ccc; font-size: 11px;")
+        self.help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(self.help_label)
+
+        self.setStyleSheet(
             """
+            #container {
+                background-color: rgba(30, 30, 30, 240);
+                border: 1px solid #555;
+                border-radius: 12px;
+            }
             QPushButton {
-                background-color: rgba(30, 30, 30, 220);
+                background-color: rgba(60, 60, 60, 200);
                 color: #eee;
                 border: 1px solid #444;
-                border-radius: 8px;
+                border-radius: 6px;
                 font-weight: bold;
-                font-size: 13px;
-                padding: 8px;
+                padding: 6px;
             }
             QPushButton:hover {
-                background-color: rgba(50, 50, 50, 240);
-                border: 1px solid #666;
-                color: #fff;
+                background-color: rgba(80, 80, 80, 230);
             }
         """
         )
-        layout.addWidget(self.button)
+        layout.addWidget(container)
 
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.hide)
 
-    def _handle_click(self) -> None:
+    def _handle_exit(self) -> None:
         self.hide()
         if self.on_exit_fs:
             self.on_exit_fs()
+
+    def _handle_stop(self) -> None:
+        self.hide()
+        if self.on_stop:
+            self.on_stop()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -237,7 +272,11 @@ class MainWindow(QMainWindow):
 
         # Start the escape triggers on the correct monitor
         target_display = self._current_profile().target_display_name
-        self.fs_overlay = FullscreenOverlay(target_display, on_exit_fs=self._exit_fullscreen)
+        self.fs_overlay = FullscreenOverlay(
+            target_display, 
+            on_exit_fs=self._exit_fullscreen,
+            on_stop=self._stop_profile
+        )
         self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self.fs_overlay.show_at_top)
 
         self._build_ui()
@@ -818,16 +857,21 @@ class MainWindow(QMainWindow):
         controller = self._create_controller(profile)
         try:
             launched = controller.launch()
-            if launched is None and controller.is_running():
-                message = f"{profile.name} is already running. QMP: {controller.artifacts.qmp_socket}"
+            if launched:
+                # 1. Arrange window (move to monitor)
+                # We pass fullscreen=False here because we'll trigger it via QMP
+                from .display import arrange_window
+                arrange_window(controller._read_pid(), profile.target_display_name, fullscreen=False)
+                
+                # 2. Trigger fullscreen via QMP if requested
+                if profile.enable_fullscreen:
+                    time.sleep(2.0) # Give window time to appear
+                    controller.toggle_fullscreen()
+                    self.hot_edge.show()
+                
+                self.status_label.setText(f"Launched {profile.name}")
             else:
-                message = f"Launched {profile.name}. QMP: {controller.artifacts.qmp_socket}"
-            if controller.display_note:
-                message = f"{message}\n{controller.display_note}"
-            self.status_label.setText(message)
-
-            if profile.enable_fullscreen:
-                self.hot_edge.show()
+                self.status_label.setText(f"Failed to launch {profile.name}")
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
@@ -869,20 +913,13 @@ class MainWindow(QMainWindow):
     def _exit_fullscreen(self) -> None:
         profile = self._current_profile()
         controller = self._create_controller(profile)
-        pid = controller._read_pid()
-        if not pid:
+        if not controller.is_running():
             self.status_label.setText("No running VM found to exit fullscreen.")
             return
 
-        from .display import set_fullscreen
-
-        note = set_fullscreen(pid, profile.target_display_name, enabled=False)
-        if note:
-            self.status_label.setText(note)
-        else:
-            self.status_label.setText(f"Attempted to exit fullscreen for {profile.name}")
-            # Hide hot edge if we successfully exited
-            self.hot_edge.hide()
+        controller.toggle_fullscreen()
+        self.status_label.setText(f"Attempted to exit fullscreen for {profile.name}")
+        self.hot_edge.hide()
 
     def _stop_profile(self) -> None:
         if not self._save_current_profile():
