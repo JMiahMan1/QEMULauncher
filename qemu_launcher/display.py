@@ -114,25 +114,36 @@ def _normalize_name(name: str | None) -> str:
 
 def _available_displays_macos() -> list[DisplayTarget]:
     try:
-        import AppKit
+        import Quartz
     except Exception:
         return []
     displays: list[DisplayTarget] = []
-    main_screen = AppKit.NSScreen.mainScreen()
-    for index, screen in enumerate(AppKit.NSScreen.screens()):
-        frame = screen.frame()
-        name = getattr(screen, "localizedName", lambda: None)() or f"Display {index + 1}"
-        is_primary = screen == main_screen
-        if is_primary:
+
+    # Get all online displays
+    max_displays = 32
+    err, online_displays, display_count = Quartz.CGGetOnlineDisplayList(max_displays, None, None)
+    if err != 0:
+        return []
+
+    main_display = Quartz.CGMainDisplayID()
+
+    for i in range(display_count):
+        display_id = online_displays[i]
+        bounds = Quartz.CGDisplayBounds(display_id)
+
+        # Determine name (simplified)
+        name = f"Display {i + 1}"
+        if display_id == main_display:
             name = f"{name} (Primary)"
+
         displays.append(
             DisplayTarget(
-                name=str(name),
-                x=int(frame.origin.x),
-                y=int(frame.origin.y),
-                width=int(frame.size.width),
-                height=int(frame.size.height),
-                primary=is_primary,
+                name=name,
+                x=int(bounds.origin.x),
+                y=int(bounds.origin.y),
+                width=int(bounds.size.width),
+                height=int(bounds.size.height),
+                primary=(display_id == main_display),
             )
         )
     return displays
@@ -178,131 +189,64 @@ def _find_wmctrl_window_id(pid: int, timeout: float = 10.0) -> str | None:
 
 
 def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
+    """Move and optionally fullscreen the QEMU window on macOS using native AX API."""
     try:
+        import Quartz
         from ApplicationServices import (
-            AXIsProcessTrusted,
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
-            AXUIElementPerformAction,
             AXUIElementSetAttributeValue,
             AXValueCreate,
-            AXValueGetValue,
-            kAXChildrenAttribute,
             kAXFrontmostAttribute,
             kAXFullScreenAttribute,
-            kAXMenuBarAttribute,
             kAXPositionAttribute,
-            kAXPressAction,
             kAXSizeAttribute,
-            kAXTitleAttribute,
             kAXValueCGPointType,
             kAXValueCGSizeType,
             kAXWindowsAttribute,
         )
-        from Quartz import CGPointMake, CGSizeMake
     except Exception as exc:
         return f"macOS display placement unavailable: {exc}"
 
-    if not AXIsProcessTrusted():
-        return "Grant Accessibility permission to enable display placement on macOS."
-
+    # 1. Create the AX application element
     app = AXUIElementCreateApplication(pid)
-    deadline = time.time() + 10.0
+
+    # 2. Wait for the window to appear
     window = None
+    deadline = time.time() + 10.0
     while time.time() < deadline:
-        error, windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, None)
-        if error == 0 and windows:
+        err, windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, None)
+        if err == 0 and windows and len(windows) > 0:
             window = windows[0]
             break
-        time.sleep(0.25)
-    if window is None:
-        return "Unable to locate the QEMU window for display placement."
+        time.sleep(0.5)
 
-    # 1. Bring QEMU to the front
+    if not window:
+        return "Timeout waiting for QEMU window to appear on macOS."
+
+    # 3. Bring to front
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
-    time.sleep(0.5)
 
-    # 2. Get current aspect ratio to avoid 'ding'/conflict
-    # QEMU Cocoa enforces an aspect ratio constraint. We must respect it
-    # during the move to avoid the OS rejecting the resize.
-    _, current_size_val = AXUIElementCopyAttributeValue(window, kAXSizeAttribute, None)
-    if current_size_val:
-        ok, current_size = AXValueGetValue(current_size_val, kAXValueCGSizeType, None)
-        if ok:
-            ratio = current_size.width / current_size.height
-            # Calculate largest width that fits the target monitor's height with this ratio
-            new_h = target.height - 40
-            new_w = new_h * ratio
-            if new_w > target.width:
-                new_w = target.width - 40
-                new_h = new_w / ratio
+    # 4. Set Position (Proven Pattern)
+    # Origin is top-left in Quartz/AX
+    pos = Quartz.CGPoint(x=target.x, y=target.y)
+    ax_pos = AXValueCreate(kAXValueCGPointType, pos)
+    err_pos = AXUIElementSetAttributeValue(window, kAXPositionAttribute, ax_pos)
 
-            position = AXValueCreate(
-                kAXValueCGPointType,
-                CGPointMake(target.x + (target.width - new_w) / 2, target.y + (target.height - new_h) / 2),
-            )
-            size = AXValueCreate(kAXValueCGSizeType, CGSizeMake(new_w, new_h))
+    # 5. Set Size (Best Effort)
+    # We use a slightly smaller size than the full monitor to avoid 'ding' if ratio doesn't match
+    size = Quartz.CGSize(width=target.width - 20, height=target.height - 20)
+    ax_size = AXValueCreate(kAXValueCGSizeType, size)
+    AXUIElementSetAttributeValue(window, kAXSizeAttribute, ax_size)
 
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute, position)
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute, size)
-
-    # 3. Wait for the Window Manager to settle
-    time.sleep(1.0)
-
+    # 6. Toggle Fullscreen if requested
     if fullscreen:
-        # Strategy 1: Direct AXFullScreen attribute
+        # Give a moment for the move to settle
+        time.sleep(0.5)
         AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, True)
-        time.sleep(0.5)
-        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
-        if is_fs:
-            return None
 
-        # Strategy 2: AppleScript Keystroke (QEMU Cocoa uses Cmd+F)
-        script = f"""
-        tell application "System Events"
-            set proc to first process whose unix id is {pid}
-            set frontmost of proc to true
-            keystroke "f" using {{command down}}
-        end tell
-        """
-        subprocess.run(["osascript", "-e", script], capture_output=True)
-        time.sleep(1.0)
-
-        # Check again
-        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
-        if is_fs:
-            return None
-
-        # Strategy 3: Menu Bar Traversal (Final Fallback)
-        _, menubar = AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute, None)
-        if menubar:
-            _, items = AXUIElementCopyAttributeValue(menubar, kAXChildrenAttribute, None)
-            for item in items or []:
-                _, title = AXUIElementCopyAttributeValue(item, kAXTitleAttribute, None)
-                if title == "View":
-                    _, menu_children = AXUIElementCopyAttributeValue(item, kAXChildrenAttribute, None)
-                    if menu_children:
-                        _, menu_items = AXUIElementCopyAttributeValue(menu_children[0], kAXChildrenAttribute, None)
-                        for m_item in menu_items or []:
-                            _, m_title = AXUIElementCopyAttributeValue(m_item, kAXTitleAttribute, None)
-                            if m_title and ("Full Screen" in m_title or "Fullscreen" in m_title):
-                                AXUIElementPerformAction(m_item, kAXPressAction)
-                                return None
-    else:
-        # Exit fullscreen: Try AX first, then AppleScript
-        AXUIElementSetAttributeValue(window, kAXFullScreenAttribute, False)
-        time.sleep(0.5)
-        _, is_fs = AXUIElementCopyAttributeValue(window, kAXFullScreenAttribute, None)
-        if is_fs:
-            # Still FS? Try AppleScript toggle
-            script = f"""
-            tell application "System Events"
-                set proc to first process whose unix id is {pid}
-                set frontmost of proc to true
-                keystroke "f" using {{command down}}
-            end tell
-            """
-            subprocess.run(["osascript", "-e", script], capture_output=True)
+    if err_pos != 0:
+        return f"macOS AX placement returned error code: {err_pos}"
 
     return None
 
