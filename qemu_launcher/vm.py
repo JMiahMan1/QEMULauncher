@@ -386,9 +386,12 @@ def build_command(
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     if platform == "darwin":
         if profile.enable_fullscreen:
-            # SDL is much more predictable for fullscreen transitions and monitor targeting on Mac
+            # SDL is required for reliable monitor targeting on Mac when "Separate Spaces" is on.
+            # Cocoa backend does not support display selection.
             if "sdl" in caps.displays:
                 return "sdl,show-cursor=on"
+            else:
+                logger.warning("SDL display backend not found; monitor targeting may fail.")
         return "cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on"
     if "gtk" in caps.displays:
         return "gtk,gl=on,show-cursor=on"
