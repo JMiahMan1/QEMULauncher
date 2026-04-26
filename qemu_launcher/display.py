@@ -218,7 +218,6 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             kAXTrustedCheckOptionPrompt,
             kAXValueCGPointType,
             kAXValueCGSizeType,
-            kAXWindowsAttribute,
         )
 
         # Accessibility attribute names are strings. Some bridge versions miss the constants.
@@ -242,13 +241,13 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     window = None
     deadline = time.time() + 15.0
     while time.time() < deadline:
-        err, windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, None)
+        # Use literal string to avoid bridge constant issues
+        err, windows = AXUIElementCopyAttributeValue(app, "AXWindows", None)
         if err == 0 and windows and len(windows) > 0:
             for i, win in enumerate(windows):
+                e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
                 e_pos, p_val = AXUIElementCopyAttributeValue(win, AX_POSITION, None)
                 e_size, s_val = AXUIElementCopyAttributeValue(win, AX_SIZE, None)
-                e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
-                e_subrole, subrole_val = AXUIElementCopyAttributeValue(win, "AXSubrole", None)
 
                 pos_str = "unknown"
                 size_str = "unknown"
@@ -258,13 +257,16 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                 if e_size == 0 and s_val:
                     _, s = AXValueGetValue(s_val, kAXValueCGSizeType, None)
                     size_str = f"{s.width}x{s.height}"
-                logger.info(
-                    f"Detected Window[{i}]: size={size_str}, pos={pos_str}, role={role_val}, subrole={subrole_val}"
-                )
 
-            window = windows[0]
-            logger.info("Located QEMU window element.")
-            break
+                logger.info(f"Detected element[{i}]: role={role_val}, size={size_str}, pos={pos_str}")
+
+                if role_val == "AXWindow":
+                    window = win
+                    logger.info(f"Located QEMU display window (Index {i})")
+                    break
+
+            if window:
+                break
         time.sleep(0.5)
 
     if not window:
