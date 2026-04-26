@@ -112,7 +112,7 @@ target_display_name = "{display}"
 
     # Target display from env or default
     target_display = os.environ.get("TEST_DISPLAY", "VG248" if is_macos else "Primary Display")
-    create_profile("Smoke Test", native_qemu, native_img, fullscreen=False, display=target_display)
+    create_profile("Smoke Test", native_qemu, native_img, fullscreen=True, display=target_display)
 
     # 2. Update settings.toml
     print(f"-> Seeding settings.toml at {config_root}...")

@@ -96,7 +96,10 @@ class FullscreenOverlay(QWidget):
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
         self.on_stop = on_stop
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
+        if sys.platform.startswith("linux"):
+            flags |= Qt.WindowType.X11BypassWindowManagerHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
         self.hide()
@@ -191,8 +194,8 @@ class FullscreenOverlay(QWidget):
         self.move(x, y)
         self.show()
         self.raise_()
-        self.activateWindow() # Try to grab focus for the Esc key
-        self._hide_timer.start(4000)
+        self.activateWindow()
+        self._hide_timer.start(30000) # Stay visible for 30s during boot
 
 
 class HotEdgeTrigger(QWidget):
@@ -202,12 +205,15 @@ class HotEdgeTrigger(QWidget):
         super().__init__()
         self.target_display_name = target_display_name
         self.on_trigger = on_trigger
-        self.setWindowFlags(
+        flags = (
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
+        if sys.platform.startswith("linux"):
+            flags |= Qt.WindowType.X11BypassWindowManagerHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
