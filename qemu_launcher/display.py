@@ -351,6 +351,28 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
                 logger.info("AppleScript fullscreen command sent.")
             except Exception as e:
                 logger.warning(f"AppleScript fullscreen failed: {e}")
+        # 7. Verify Fullscreen
+        time.sleep(2.0)
+        err_fs_check = -1
+        if window:
+            err_fs_check, fs_val = AXUIElementCopyAttributeValue(window, "AXFullScreen", None)
+            if err_fs_check == 0 and fs_val:
+                logger.info(f"Confirmed Fullscreen status via AX: {fs_val}")
+
+        if err_fs_check != 0:
+            # Try AppleScript check
+            script_check = f"""
+            tell application "System Events"
+                set qemu_proc to first process whose unix id is {pid}
+                set win to first window of qemu_proc
+                return value of attribute "AXFullScreen" of win
+            end tell
+            """
+            try:
+                out_fs = subprocess.check_output(["osascript", "-e", script_check]).decode().strip()
+                logger.info(f"AppleScript confirmed Fullscreen status: {out_fs}")
+            except Exception:
+                logger.warning("Could not verify fullscreen status via AX or AppleScript.")
 
     if not success_move:
         logger.error("Failed to move window to target monitor after multiple attempts.")
