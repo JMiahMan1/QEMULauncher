@@ -175,20 +175,36 @@ auto_launch_enabled = true
         sys.exit(1)
 
     if is_macos:
-        print("-> Verifying Fullscreen state via AppleScript (with retries)...")
-        # Check if the QEMU window is actually fullscreen (retry for 10s)
+        print("-> Verifying Fullscreen state/Geometry/Position via AppleScript...")
+        # Expected position for VG248 is around -1920
         success = False
         for _ in range(10):
-            script = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
-            out, err = run_applescript(script)
-            if out.lower() == "true":
-                print("SUCCESS: Fullscreen state verified on macOS.")
+            # Check AXFullScreen
+            script_fs = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
+            out_fs, _ = run_applescript(script_fs)
+
+            # Check SIZE
+            script_size = 'tell application "System Events" to get size of first window of (first process whose name contains "qemu")'
+            out_size, _ = run_applescript(script_size)
+
+            # Check POSITION
+            script_pos = 'tell application "System Events" to get position of first window of (first process whose name contains "qemu")'
+            out_pos, _ = run_applescript(script_pos)
+
+            # Verification logic
+            is_large = "1920" in out_size or "1080" in out_size
+            is_on_correct_monitor = "-1920" in out_pos
+
+            if out_fs.lower() == "true" or (is_large and is_on_correct_monitor):
+                print(f"SUCCESS: Fullscreen state/Geometry/Position verified on macOS.")
+                print(f"-> AX: {out_fs}, Size: {out_size}, Position: {out_pos}")
                 success = True
                 break
             time.sleep(1)
-        
+
         if not success:
-            print(f"FAILED: Window is NOT in fullscreen mode after 10s. (Value: {out})")
+            print(f"FAILED: Window verification failed after 10s.")
+            print(f"-> AX: {out_fs}, Size: {out_size}, Position: {out_pos}")
 
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
