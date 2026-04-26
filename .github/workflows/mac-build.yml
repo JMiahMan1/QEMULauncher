@@ -71,7 +71,7 @@ jobs:
           python-version: "3.12"
       - name: Install Dependencies
         run: |
-          brew install qemu coreutils
+          brew install qemu sdl2 coreutils
           python3 -m pip install -r requirements.txt
       - name: Build macOS Bundle
         run: |

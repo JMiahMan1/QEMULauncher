@@ -41,9 +41,20 @@ def check_qmp_running(qmp_path):
 
 
 def test_ui_workflow():
-    print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
-
     is_macos = sys.platform == "darwin"
+    if is_macos:
+        # Check if WindowServer is accessible
+        try:
+            from AppKit import NSScreen
+
+            if not NSScreen.screens():
+                print("-> No screens detected (Headless CI?). Skipping hardware UI test.")
+                return
+        except Exception:
+            print("-> AppKit failed (Headless CI?). Skipping hardware UI test.")
+            return
+
+    print("--- STARTING FULL-STACK HARDWARE VERIFICATION ---")
     home = os.environ.get("HOME")
 
     # Use an isolated home for the test to avoid path naming drama (like spaces)
