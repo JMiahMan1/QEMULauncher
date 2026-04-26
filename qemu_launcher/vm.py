@@ -513,6 +513,19 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
     if mode == "passt" or (mode == "auto" and "passt" in caps.netdev_backends):
         return ["-netdev", "passt,id=net0", "-device", "virtio-net-pci,netdev=net0"]
 
+    if mode == "vmnet-shared":
+        return ["-netdev", "vmnet-shared,id=net0", "-device", "virtio-net-pci,netdev=net0"]
+
+    if mode == "vmnet-bridged":
+        # Usually bridges directly to 'en0' (Wi-Fi) or 'en1' (Ethernet)
+        ifname = profile.bridge_interface.split()[0] if profile.bridge_interface else "en0"
+        return ["-nic", f"vmnet-bridged,ifname={ifname}"]
+
+    if mode == "bridge":
+        # Extract the interface name (e.g., 'bridge100' or 'en0' if the user selected 'en0 (Wi-Fi)')
+        bridge_name = profile.bridge_interface.split()[0] if profile.bridge_interface else "bridge0"
+        return ["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"]
+
     return ["-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0"]
 
 

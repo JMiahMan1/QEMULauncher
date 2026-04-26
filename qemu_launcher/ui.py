@@ -201,7 +201,7 @@ class FullscreenOverlay(QWidget):
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
-            self._handle_click()
+            self.hide()
         else:
             super().keyPressEvent(event)
 

@@ -111,10 +111,16 @@ jobs:
         run: |
           python3 -m PyInstaller --noconfirm --clean --onedir --windowed --name "qemu-launcher-linux" qemu_app.py
           VERSION="2.0"
+          # Check if this is a tagged release or a branch build
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            ITER="1"
+          else
+            ITER="dev"
+          fi
           fpm -s dir -t rpm \
             -n "qemu-launcher" \
             -v "${VERSION}" \
-            --iteration "${GITHUB_SHA:0:7}" \
+            --iteration "${ITER}" \
             --description "QEMU Launcher for macOS and Linux VMs" \
             --maintainer "QEMU Launcher" \
             --architecture x86_64 \
@@ -154,10 +160,18 @@ jobs:
       - name: Build RPM on Host (x86)
         run: |
           VERSION="2.0"
+          
+          # Check if this is a tagged release or a branch build
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            ITER="1"
+          else
+            ITER="dev"
+          fi
+          
           fpm -s dir -t rpm \
             -n "qemu-launcher" \
             -v "${VERSION}" \
-            --iteration "${GITHUB_SHA:0:7}" \
+            --iteration "${ITER}" \
             --description "QEMU Launcher for macOS and Linux VMs" \
             --maintainer "QEMU Launcher" \
             --architecture aarch64 \
