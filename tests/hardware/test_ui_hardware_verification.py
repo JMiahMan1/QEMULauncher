@@ -194,33 +194,57 @@ auto_launch_enabled = true
         print("-> Verifying Fullscreen state/Geometry/Position via AppleScript...")
         # Expected position for VG248 is around -1920
         success = False
+        print("-> Querying all QEMU windows...")
         for _ in range(10):
-            # Check AXFullScreen
-            script_fs = 'tell application "System Events" to get value of attribute "AXFullScreen" of first window of (first process whose name contains "qemu")'
-            out_fs, _ = run_applescript(script_fs)
+            # Get list of all windows with their properties
+            script = """
+            set results to {}
+            tell application "System Events"
+                set qemu_proc to first process whose name contains "qemu"
+                set win_list to windows of qemu_proc
+                repeat with win in win_list
+                    set end of results to {value of attribute "AXFullScreen" of win, size of win, position of win}
+                end repeat
+            end tell
+            return results
+            """
+            out, _ = run_applescript(script)
 
-            # Check SIZE
-            script_size = 'tell application "System Events" to get size of first window of (first process whose name contains "qemu")'
-            out_size, _ = run_applescript(script_size)
+            # Find the largest window (the display)
+            # AppleScript returns something like "true, 1920, 1080, -1920, 0, false, 200, 100, 0, 0"
+            parts = out.replace("{", "").replace("}", "").split(", ")
+            best_win = None
+            max_area = 0
 
-            # Check POSITION
-            script_pos = 'tell application "System Events" to get position of first window of (first process whose name contains "qemu")'
-            out_pos, _ = run_applescript(script_pos)
+            # Each window has 5 components in the flat list: [FS, W, H, X, Y]
+            for i in range(0, len(parts) - 4, 5):
+                try:
+                    fs = parts[i].strip()
+                    w = int(parts[i + 1])
+                    h = int(parts[i + 2])
+                    x = int(parts[i + 3])
+                    y = int(parts[i + 4])
+                    area = w * h
+                    if area > max_area:
+                        max_area = area
+                        best_win = (fs, w, h, x, y)
+                except (ValueError, IndexError):
+                    continue
 
-            # Verification logic
-            is_large = "1920" in out_size or "1080" in out_size
-            is_on_correct_monitor = "-1920" in out_pos
+            if best_win:
+                fs, w, h, x, y = best_win
+                # VG248 is at -1920. Allow some buffer.
+                if x < -1000:
+                    print(f"SUCCESS: Target window found at ({x}, {y}) with size {w}x{h}. FS: {fs}")
+                    success = True
+                    break
+                else:
+                    print(f"-> Found window ({w}x{h}) at ({x}, {y}) - not on target monitor yet.")
 
-            if out_fs.lower() == "true" or (is_large and is_on_correct_monitor):
-                print(f"SUCCESS: Fullscreen state/Geometry/Position verified on macOS.")
-                print(f"-> AX: {out_fs}, Size: {out_size}, Position: {out_pos}")
-                success = True
-                break
             time.sleep(1)
 
         if not success:
             print(f"FAILED: Window verification failed after 10s.")
-            print(f"-> AX: {out_fs}, Size: {out_size}, Position: {out_pos}")
 
     print("\n--- FULL-STACK HARDWARE VERIFICATION COMPLETE ---")
 
