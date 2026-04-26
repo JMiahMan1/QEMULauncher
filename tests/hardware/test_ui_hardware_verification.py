@@ -199,11 +199,13 @@ auto_launch_enabled = true
             script = """
             set results to {}
             tell application "System Events"
-                set qemu_proc to first process whose name contains "qemu"
-                set the_pid to unix id of qemu_proc
-                set win_list to windows of qemu_proc
-                repeat with win in win_list
-                    set end of results to {the_pid, value of attribute "AXFullScreen" of win, size of win, position of win, value of attribute "AXRole" of win, value of attribute "AXSubrole" of win}
+                set qemu_procs to every process whose name contains "qemu"
+                repeat with q_proc in qemu_procs
+                    set the_pid to unix id of q_proc
+                    set win_list to windows of q_proc
+                    repeat with win in win_list
+                        set end of results to {the_pid, value of attribute "AXFullScreen" of win, size of win, position of win, value of attribute "AXRole" of win, value of attribute "AXSubrole" of win}
+                    end repeat
                 end repeat
             end tell
             return results
