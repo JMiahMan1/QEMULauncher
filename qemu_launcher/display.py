@@ -212,18 +212,14 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             AXUIElementCopyAttributeValue,
             AXUIElementCreateApplication,
             AXUIElementSetAttributeValue,
-            AXValueCreate,
             AXValueGetValue,
             kAXFrontmostAttribute,
             kAXTrustedCheckOptionPrompt,
             kAXValueCGPointType,
-            kAXValueCGSizeType,
         )
 
         # Accessibility attribute names are strings. Some bridge versions miss the constants.
         AX_FULLSCREEN = "AXFullScreen"
-        AX_POSITION = "AXPosition"
-        AX_SIZE = "AXSize"
     except Exception as exc:
         logger.error(f"Failed to import ApplicationServices/Quartz: {exc}")
         return f"macOS display placement unavailable: {exc}"
@@ -274,48 +270,87 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
 
         time.sleep(0.5)
 
-    if not window:
-        logger.error("Timed out waiting for QEMU window to appear.")
-        return "Timeout waiting for QEMU window to appear on macOS."
-
     # 4. Bring to front
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    # 5. Set Position & Size with Retry Loop
-    # Sometimes macOS ignores the first attempt if the window is still initializing
+    # 5. Set Position & Size with AppleScript Fallback
+    # On macOS, native AX moves often fail over SSH/Headless due to TCC restrictions.
+    # AppleScript (System Events) is more robust in these environments.
+    logger.info(f"Moving window for PID {pid} to ({target.x}, {target.y}) via AppleScript fallback...")
+    script = f"""
+    tell application "System Events"
+        set qemu_proc to first process whose unix id is {pid}
+        set win_list to windows of qemu_proc
+        if (count of win_list) > 0 then
+            set win to item 1 of win_list
+            set position of win to {{{target.x}, {target.y}}}
+            set size of win to {{{target.width - 40}, {target.height - 40}}}
+        end if
+    end tell
+    """
+    try:
+        subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
+        logger.info("AppleScript move command sent.")
+    except Exception as e:
+        logger.warning(f"AppleScript move failed: {e}")
+
+    # 6. Verification & AX Fullscreen Toggle
     success_move = False
     deadline_move = time.time() + 5.0
     while time.time() < deadline_move:
-        logger.info(f"Attempting to set position to ({float(target.x)}, {float(target.y)})")
-        pos = Quartz.CGPoint(x=float(target.x), y=float(target.y))
-        ax_pos = AXValueCreate(kAXValueCGPointType, pos)
-        err_pos = AXUIElementSetAttributeValue(window, AX_POSITION, ax_pos)
-        if err_pos != 0:
-            logger.warning(f"AXUIElementSetAttributeValue(Position) returned {err_pos}")
+        # Re-check AX for verification
+        elements = []
+        for attr in ["AXWindows", "AXChildren"]:
+            err_v, vals = AXUIElementCopyAttributeValue(app, attr, None)
+            if err_v == 0 and vals:
+                elements.extend(vals)
 
-        size = Quartz.CGSize(width=float(target.width - 40), height=float(target.height - 40))
-        ax_size = AXValueCreate(kAXValueCGSizeType, size)
-        err_size = AXUIElementSetAttributeValue(window, AX_SIZE, ax_size)
-        if err_size != 0:
-            logger.warning(f"AXUIElementSetAttributeValue(Size) returned {err_size}")
-
-        # Check if it actually moved
-        err_check, current_pos_val = AXUIElementCopyAttributeValue(window, AX_POSITION, None)
-        if err_check == 0 and current_pos_val:
-            ok, current_pos = AXValueGetValue(current_pos_val, kAXValueCGPointType, None)
-            if ok and abs(current_pos.x - target.x) < 50:
-                logger.info(f"Confirmed window moved to {current_pos.x}, {current_pos.y}")
-                success_move = True
+        for win in elements:
+            e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
+            if role_val == "AXWindow":
+                window = win
                 break
 
-        time.sleep(0.5)
+        if window:
+            err_check, current_pos_val = AXUIElementCopyAttributeValue(window, "AXPosition", None)
+            if err_check == 0 and current_pos_val:
+                ok, current_pos = AXValueGetValue(current_pos_val, kAXValueCGPointType, None)
+                if ok and abs(current_pos.x - target.x) < 100:
+                    logger.info(f"Confirmed window moved to {current_pos.x}, {current_pos.y}")
+                    success_move = True
+                    break
+
+        time.sleep(1.0)
 
     # 6. Toggle Fullscreen if requested
     if fullscreen:
         logger.info("Requesting fullscreen toggle.")
         time.sleep(1.0)
-        AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
+
+        # Try AX first
+        err_fs = -1
+        if window:
+            err_fs = AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
+
+        # Fallback to AppleScript if AX failed or window not found
+        if err_fs != 0:
+            logger.info("AX fullscreen toggle failed or window not found; using AppleScript fallback.")
+            script_fs = f"""
+            tell application "System Events"
+                set qemu_proc to first process whose unix id is {pid}
+                set win_list to windows of qemu_proc
+                if (count of win_list) > 0 then
+                    set win to item 1 of win_list
+                    set value of attribute "AXFullScreen" of win to true
+                end if
+            end tell
+            """
+            try:
+                subprocess.run(["osascript", "-e", script_fs], check=True, capture_output=True)
+                logger.info("AppleScript fullscreen command sent.")
+            except Exception as e:
+                logger.warning(f"AppleScript fullscreen failed: {e}")
 
     if not success_move:
         logger.error("Failed to move window to target monitor after multiple attempts.")
