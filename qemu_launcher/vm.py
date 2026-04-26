@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shlex
 import socket
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
     from .capabilities import QemuCapabilities
     from .config import VMProfile
 from .display import arrange_window, should_qemu_handle_fullscreen
+
+logger = logging.getLogger("qemu-launcher")
 
 
 class ConfigurationError(Exception):

@@ -56,6 +56,7 @@ def test_ui_workflow():
     # AppPaths logic says:
     config_root = test_root / "config"
     runtime_root = test_root / "runtime"
+    state_dir = test_root / "state"
 
     if is_macos:
         app_path = "/Users/jeremiahsummers/Work/git/Python/QEMULauncher/QEMU Launcher.app"
