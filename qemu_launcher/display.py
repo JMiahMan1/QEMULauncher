@@ -241,13 +241,17 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     window = None
     deadline = time.time() + 15.0
     while time.time() < deadline:
-        # Use literal string to avoid bridge constant issues
-        err, windows = AXUIElementCopyAttributeValue(app, "AXWindows", None)
-        if err == 0 and windows and len(windows) > 0:
-            for i, win in enumerate(windows):
+        elements = []
+        for attr in ["AXWindows", "AXChildren"]:
+            err_v, vals = AXUIElementCopyAttributeValue(app, attr, None)
+            if err_v == 0 and vals:
+                elements.extend(vals)
+
+        if elements:
+            for i, win in enumerate(elements):
                 e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
-                e_pos, p_val = AXUIElementCopyAttributeValue(win, AX_POSITION, None)
-                e_size, s_val = AXUIElementCopyAttributeValue(win, AX_SIZE, None)
+                e_pos, p_val = AXUIElementCopyAttributeValue(win, "AXPosition", None)
+                e_size, s_val = AXUIElementCopyAttributeValue(win, "AXSize", None)
 
                 pos_str = "unknown"
                 size_str = "unknown"
@@ -262,7 +266,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
 
                 if role_val == "AXWindow":
                     window = win
-                    logger.info(f"Located QEMU display window (Index {i})")
+                    logger.info("Located QEMU display window.")
                     break
 
             if window:
