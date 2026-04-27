@@ -247,12 +247,11 @@ class HotEdgeTrigger(QWidget):
         if sys.platform == "darwin":
             _make_window_global_macos(int(self.winId()))
 
-        # Polling and Dwell Logic
-        self.dwell_time_ms = 0
+        # Dwell Logic
+        self.dwell_timer = QTimer(self)
+        self.dwell_timer.setSingleShot(True)
+        self.dwell_timer.timeout.connect(self._on_dwell_complete)
         self.trigger_threshold_ms = 5000  # 5 seconds as requested
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._check_hover)
-        self.timer.start(100)
 
         # Transparent but captures mouse. Alpha 1 is effectively invisible but still receives events.
         self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
@@ -271,29 +270,30 @@ class HotEdgeTrigger(QWidget):
             screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
-        # On Linux, make it full width and taller to ensure hover detection at the screen edge
-        width = geom.width() if sys.platform.startswith("linux") else 400
-        height = 10
+        # On Linux/Wayland, a full-width and slightly thicker bar is much more reliable
+        width = geom.width()
+        height = 15 
         self.setGeometry(
-            geom.x() + (geom.width() - width) // 2,
+            geom.x(),
             geom.y(),
             width,
             height,
         )
 
-    def _check_hover(self) -> None:
-        """Poll cursor position to check for hover trigger with 5s dwell."""
-        from PySide6.QtGui import QCursor
+    def enterEvent(self, event) -> None:
+        """Start the dwell timer when the mouse enters the trigger area."""
+        self.dwell_timer.start(self.trigger_threshold_ms)
+        super().enterEvent(event)
 
-        cursor_pos = QCursor.pos()
-        if self.isVisible() and self.geometry().contains(cursor_pos):
-            self.dwell_time_ms += 100
-            if self.dwell_time_ms >= self.trigger_threshold_ms:
-                self.dwell_time_ms = 0 # Reset after trigger
-                if self.on_trigger:
-                    self.on_trigger()
-        else:
-            self.dwell_time_ms = 0
+    def leaveEvent(self, event) -> None:
+        """Cancel the dwell timer if the mouse leaves the trigger area."""
+        self.dwell_timer.stop()
+        super().leaveEvent(event)
+
+    def _on_dwell_complete(self) -> None:
+        """Trigger the action after the dwell is successful."""
+        if self.on_trigger:
+            self.on_trigger()
 
 
 class MainWindow(QMainWindow):
