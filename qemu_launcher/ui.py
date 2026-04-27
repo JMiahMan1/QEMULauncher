@@ -225,12 +225,17 @@ class FullscreenOverlay(QWidget):
 class HotEdgeTrigger(QWidget):
     """Transparent trigger at the top edge of the screen to show the exit menu."""
 
-    def __init__(self, target_display_name: str | None = None, on_trigger: Callable[[], None] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        target_display_name: str | None = None,
+        on_trigger: Callable[[], None] | None = None,
+    ) -> None:
+        super().__init__(parent)
         self.target_display_name = target_display_name
         self.on_trigger = on_trigger
         flags = (
-            Qt.WindowType.ToolTip
+            Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowDoesNotAcceptFocus
@@ -319,7 +324,7 @@ class MainWindow(QMainWindow):
         self.fs_overlay = FullscreenOverlay(
             self, target_display, on_exit_fs=self._exit_fullscreen, on_stop=self._stop_profile
         )
-        self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self._handle_hot_edge)
+        self.hot_edge = HotEdgeTrigger(self, target_display, on_trigger=self._handle_hot_edge)
 
         self._build_ui()
         self._restore_window_state()
