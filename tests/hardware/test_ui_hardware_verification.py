@@ -76,16 +76,18 @@ def test_ui_workflow():
     host_arch = py_platform.machine()  # 'arm64' or 'x86_64'
     native_qemu = "aarch64" if (is_macos and host_arch == "arm64") else "x86_64"
 
-    def get_cirros(arch):
-        filename = f"cirros-0.6.2-{arch}-disk.img"
+    def get_alpine_test_image(arch):
+        # We use Alpine 'tiny' cloud images which are ~114MB and boot to a prompt.
+        variant = "bios-tiny" if arch == "x86_64" else "uefi-tiny"
+        filename = f"oci_alpine-3.19.9-{arch}-{variant}-r0.qcow2"
         local_path = f"/tmp/{filename}"
         if not os.path.exists(local_path):
-            print(f"-> Downloading tiny {arch} image (CirrOS)...")
-            url = f"https://github.com/cirros-dev/cirros/releases/download/0.6.2/{filename}"
+            print(f"-> Downloading minimal Alpine {arch} image...")
+            url = f"https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/cloud/{filename}"
             subprocess.run(["curl", "-L", "-o", local_path, url], capture_output=True)
         return local_path
 
-    native_img = get_cirros(native_qemu)
+    native_img = get_alpine_test_image(native_qemu)
 
     profiles_dir = config_root / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +114,7 @@ network_mode = "user"
 enable_audio = false
 enable_fullscreen = {"true" if fullscreen else "false"}
 target_display_name = "{display}"
+extra_args = ["-serial", "file:{test_root}/serial.log"]
 """
         with open(f"{profiles_dir}/{name.lower().replace(' ', '_')}.toml", "w") as f:
             f.write(content)
@@ -178,8 +181,51 @@ auto_launch_enabled = true
     # We rely on auto-launch now since xdotool/AppleScript can be flaky
 
     # 6. Verify VM Deep Boot
-    print("-> Waiting for VM stabilization (40s)...")
-    time.sleep(40)
+    print("-> Waiting for VM to initialize (5s)...")
+    time.sleep(5)
+    
+    # Send 'Enter' to bypass bootloader timeout
+    qmp_path = runtime_root / "profiles" / "smoke_test" / "qmp.sock"
+    if qmp_path.exists():
+        print("-> Sending 'Return' key to bypass bootloader...")
+        try:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(str(qmp_path))
+            client.recv(1024) # Greeting
+            client.sendall(json.dumps({"execute": "qmp_capabilities"}).encode() + b"\n")
+            client.recv(1024) # OK
+            
+            # Send 'ret' key
+            key_event = {
+                "execute": "input-send-event",
+                "arguments": {
+                    "events": [
+                        {"type": "key", "data": {"down": True, "key": {"type": "qcode", "data": "ret"}}},
+                        {"type": "key", "data": {"down": False, "key": {"type": "qcode", "data": "ret"}}}
+                    ]
+                }
+            }
+            client.sendall(json.dumps(key_event).encode() + b"\n")
+            client.close()
+        except Exception as e:
+            print(f"-> Failed to send Return key: {e}")
+
+    print("-> Waiting for OS to fully boot (detecting login prompt)...")
+    serial_log = test_root / "serial.log"
+    booted = False
+    for i in range(60): # 60 second timeout
+        if serial_log.exists():
+            content = serial_log.read_text()
+            if "login:" in content.lower():
+                print(f"SUCCESS: OS fully booted to login prompt in {i} seconds.")
+                booted = True
+                break
+        time.sleep(1)
+    
+    if not booted:
+        print("FAILED: OS failed to reach login prompt within 60 seconds.")
+        sys.exit(1)
 
     # QMP path uses profile_id which is 'smoke_test'
     qmp_path = runtime_root / "profiles" / "smoke_test" / "qmp.sock"
@@ -267,15 +313,32 @@ if __name__ == "__main__":
     try:
         test_ui_workflow()
     finally:
-        print("-> Cleaning up all test processes (Aggressive)...")
-        # Kill everything
+        print("-> Cleaning up all test processes (Surgical + Aggressive)...")
+        # 1. Surgical Kill via PID files
+        profiles_runtime = test_root / "runtime" / "profiles"
+        if profiles_runtime.exists():
+            for pid_file in profiles_runtime.glob("**/qemu.pid"):
+                try:
+                    pid = int(pid_file.read_text().strip())
+                    print(f"-> Killing QEMU PID {pid}...")
+                    os.kill(pid, 9)
+                except Exception:
+                    pass
+
+        # 2. Kill by process name
         if sys.platform == "darwin":
             subprocess.run(["pkill", "-9", "QEMU Launcher"], capture_output=True)
             subprocess.run(["pkill", "-9", "qemu-system-x86_64"], capture_output=True)
             subprocess.run(["pkill", "-9", "qemu-system-aarch64"], capture_output=True)
         else:
             subprocess.run(["pkill", "-9", "-f", "qemu_app.py"], capture_output=True)
+            subprocess.run(["pkill", "-9", "qemu-system-x86_64"], capture_output=True)
+            subprocess.run(["pkill", "-9", "qemu-system-aarch64"], capture_output=True)
             subprocess.run(["pkill", "-9", "qemu-system"], capture_output=True)
+        
+        # 3. Kill anything related to this test module or temporary path
+        subprocess.run(["pkill", "-9", "-f", "test_ui_hardware_verification"], capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "qemu-launcher-test"], capture_output=True)
 
         # Give it a moment
         time.sleep(1)

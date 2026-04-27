@@ -25,3 +25,4 @@ htmlcov/
 *.log
 config.ini
 .setup_complete
+*.qcow2

@@ -247,7 +247,9 @@ class HotEdgeTrigger(QWidget):
         if sys.platform == "darwin":
             _make_window_global_macos(int(self.winId()))
 
-        # Poll for hover since we are transparent/click-through
+        # Polling and Dwell Logic
+        self.dwell_time_ms = 0
+        self.trigger_threshold_ms = 5000  # 5 seconds as requested
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._check_hover)
         self.timer.start(100)
@@ -269,9 +271,9 @@ class HotEdgeTrigger(QWidget):
             screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
-        # On Linux, make it full width to be easier to hit if mouse is weird
+        # On Linux, make it full width and taller to ensure hover detection at the screen edge
         width = geom.width() if sys.platform.startswith("linux") else 400
-        height = 1 if sys.platform.startswith("linux") else 10  # 1px is enough to trigger but less intrusive
+        height = 10
         self.setGeometry(
             geom.x() + (geom.width() - width) // 2,
             geom.y(),
@@ -280,13 +282,18 @@ class HotEdgeTrigger(QWidget):
         )
 
     def _check_hover(self) -> None:
-        """Poll cursor position to check for hover trigger."""
+        """Poll cursor position to check for hover trigger with 5s dwell."""
         from PySide6.QtGui import QCursor
 
         cursor_pos = QCursor.pos()
-        if self.geometry().contains(cursor_pos):
-            if self.on_trigger:
-                self.on_trigger()
+        if self.isVisible() and self.geometry().contains(cursor_pos):
+            self.dwell_time_ms += 100
+            if self.dwell_time_ms >= self.trigger_threshold_ms:
+                self.dwell_time_ms = 0 # Reset after trigger
+                if self.on_trigger:
+                    self.on_trigger()
+        else:
+            self.dwell_time_ms = 0
 
 
 class MainWindow(QMainWindow):
@@ -306,7 +313,7 @@ class MainWindow(QMainWindow):
         self.fs_overlay = FullscreenOverlay(
             self, target_display, on_exit_fs=self._exit_fullscreen, on_stop=self._stop_profile
         )
-        self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self.fs_overlay.show_at_top)
+        self.hot_edge = HotEdgeTrigger(target_display, on_trigger=self._handle_hot_edge)
 
         self._build_ui()
         self._restore_window_state()
@@ -903,13 +910,9 @@ class MainWindow(QMainWindow):
 
                 # 2. Trigger fullscreen via QMP if requested
                 if profile.enable_fullscreen:
-                    if getattr(profile, "show_fullscreen_overlay", False):
-                        self.hot_edge.show()
-                        # We use a timer to trigger FS after a short delay to ensure window is ready
-                        QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
-                    else:
-                        # Just trigger fullscreen, don't show the overlay/hot-edge
-                        QTimer.singleShot(2000, lambda: controller.toggle_fullscreen())
+                    self.hot_edge.show()
+                    # We use a timer to trigger FS after a short delay to ensure window is ready
+                    QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
 
                 self.status_label.setText(f"Launched {profile.name}")
             else:
@@ -921,9 +924,17 @@ class MainWindow(QMainWindow):
         """Trigger fullscreen and show overlay after a short delay."""
         if controller.is_running():
             controller.toggle_fullscreen()
-            # Show overlay immediately so user has an escape path
+            # Show overlay immediately so user has an escape path if enabled
             if getattr(controller.profile, "show_fullscreen_overlay", False):
                 self.fs_overlay.show_at_top()
+
+    def _handle_hot_edge(self) -> None:
+        """Determines whether to show the overlay or exit directly after 5s dwell."""
+        profile = self._current_profile()
+        if getattr(profile, "show_fullscreen_overlay", False):
+            self.fs_overlay.show_at_top()
+        else:
+            self._exit_fullscreen()
 
     def _maybe_auto_launch_startup_profile(self) -> None:
         if self._startup_launch_done or not self.settings.auto_launch_enabled:
