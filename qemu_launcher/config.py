@@ -24,6 +24,12 @@ SCHEMA_VERSION = 1
 LEGACY_CONFIG_DIR = Path.home() / ".config" / "qemu_launcher"
 LEGACY_CONFIG_FILE = LEGACY_CONFIG_DIR / "config.ini"
 
+# Constants for Hot-Edge Behavior
+HOT_EDGE_HEIGHT_LINUX = 25
+HOT_EDGE_HEIGHT_MACOS = 15
+DWELL_DURATION_MS = 5000
+POLLING_INTERVAL_MS = 500
+
 
 class AppPaths:
     def __init__(

@@ -42,16 +42,6 @@ def main(argv: list[str] | None = None) -> int:
         print("Another instance is already running. Exiting.", file=sys.stderr)
         return 1
     import logging
-
-    paths.logs_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.FileHandler(paths.logs_dir / "app.log"), logging.StreamHandler(sys.stdout)],
-    )
-    logger = logging.getLogger("qemu-launcher")
-    logger.info(f"Application starting... Logs at: {paths.logs_dir / 'app.log'}")
-
     parser = argparse.ArgumentParser(description="QEMU Launcher")
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved QEMU command and exit")
     parser.add_argument("--launch", action="store_true", help="Launch the selected profile without opening the UI")
@@ -64,6 +54,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # Re-initialize paths with overrides
     paths = AppPaths(config_dir=args.config, state_dir=args.state, runtime_dir=args.runtime)
+
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(paths.logs_dir / "app.log"), logging.StreamHandler(sys.stdout)],
+    )
+    logger = logging.getLogger("qemu-launcher")
+    logger.info(f"Application starting... Logs at: {paths.logs_dir / 'app.log'}")
 
     if args.integrity_check:
         print("[INTEGRITY] Success: All core modules loaded.")
@@ -93,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
 
-    return run_ui()
+    return run_ui(paths)
 
 
 if __name__ == "__main__":

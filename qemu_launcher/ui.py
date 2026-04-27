@@ -36,6 +36,10 @@ from .config import (
     APP_AUTHOR,
     APP_NAME,
     AppPaths,
+    DWELL_DURATION_MS,
+    HOT_EDGE_HEIGHT_LINUX,
+    HOT_EDGE_HEIGHT_MACOS,
+    POLLING_INTERVAL_MS,
     VMProfile,
     build_default_profile,
     ensure_default_profile,
@@ -52,6 +56,9 @@ from .vm import (
 )
 
 logger = logging.getLogger("qemu-launcher")
+
+DWELL_DURATION_MS = 2000
+POLLING_INTERVAL_MS = 500
 
 
 def detect_screens() -> list[str]:
@@ -107,6 +114,12 @@ class FullscreenOverlay(QWidget):
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
         self.on_stop = on_stop
+
+        # Persistence Timer (Combat Wayland hiding)
+        self.raise_timer = QTimer(self)
+        self.raise_timer.timeout.connect(self._persist_on_top)
+        self.raise_timer.start(100)
+
         # ToolTip usually has the highest z-order priority in Qt
         flags = Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         if sys.platform.startswith("linux"):
@@ -115,10 +128,6 @@ class FullscreenOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
         self.hide()
-
-        # Timer to persistently raise the window while it's shown
-        self._raise_timer = QTimer(self)
-        self._raise_timer.timeout.connect(self.raise_)
 
         if sys.platform == "darwin":
             _make_window_global_macos(int(self.winId()))
@@ -184,26 +193,32 @@ class FullscreenOverlay(QWidget):
 
     def _handle_exit(self) -> None:
         self.hide()
-        self._raise_timer.stop()
+        self.raise_timer.stop()
         if self.on_exit_fs:
             self.on_exit_fs()
 
     def _handle_stop(self) -> None:
         self.hide()
-        self._raise_timer.stop()
+        self.raise_timer.stop()
         if self.on_stop:
             self.on_stop()
 
     def hide(self) -> None:
         super().hide()
-        if hasattr(self, "_raise_timer"):
-            self._raise_timer.stop()
+        self.raise_timer.stop()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
             self.hide()
         else:
             super().keyPressEvent(event)
+
+    def _persist_on_top(self) -> None:
+        """Force the overlay to stay on top if visible."""
+        if self.isVisible():
+            self.raise_()
+            if sys.platform != "darwin":
+                self.activateWindow()
 
     def show_at_top(self) -> None:
         screens = QGuiApplication.screens()
@@ -218,7 +233,7 @@ class FullscreenOverlay(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        self._raise_timer.start(100)  # Raise every 100ms
+        self.raise_timer.start(100)  # Raise every 100ms
         self._hide_timer.start(60000)  # Stay visible for 60s during boot
 
 
@@ -257,12 +272,12 @@ class HotEdgeTrigger(QWidget):
         self.dwell_timer = QTimer(self)
         self.dwell_timer.setSingleShot(True)
         self.dwell_timer.timeout.connect(self._on_dwell_complete)
-        self.trigger_threshold_ms = 5000 
+        self.trigger_threshold_ms = DWELL_DURATION_MS
 
         # Persistence Timer (Combat Wayland hiding)
         self.raise_timer = QTimer(self)
         self.raise_timer.timeout.connect(self._persist_on_top)
-        self.raise_timer.start(500)
+        self.raise_timer.start(POLLING_INTERVAL_MS)
 
         # Ensure it starts on the correct monitor
         QTimer.singleShot(500, self._update_geometry)
@@ -279,9 +294,9 @@ class HotEdgeTrigger(QWidget):
             screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
-        # On Linux/Wayland, a full-width and thicker bar (25px) is much more reliable
+        # Use platform-specific heights from constants
         width = geom.width()
-        height = 25 if sys.platform.startswith("linux") else 15
+        height = HOT_EDGE_HEIGHT_LINUX if sys.platform.startswith("linux") else HOT_EDGE_HEIGHT_MACOS
         self.setGeometry(
             geom.x(),
             geom.y(),
@@ -314,11 +329,19 @@ class HotEdgeTrigger(QWidget):
             in_y = geom.y() <= pos.y() <= (geom.y() + trigger_height)
             
             if in_x and in_y:
-                self.dwell_time_ms += 500
+                self.dwell_time_ms += POLLING_INTERVAL_MS
+                print(f"-> Hot-Edge: MATCH TICK ({self.dwell_time_ms}ms)")
+                if self.dwell_time_ms >= self.trigger_threshold_ms:
+                    print(f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}")
                 if self.dwell_time_ms >= self.trigger_threshold_ms:
                     self.dwell_time_ms = 0
+                    print("-> Hot-Edge: Dwell COMPLETE!")
+                    # Audio feedback
+                    QApplication.beep()
                     self._on_dwell_complete()
             else:
+                if self.dwell_time_ms > 0:
+                    print(f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})")
                 self.dwell_time_ms = 0
 
     def enterEvent(self, event) -> None:
@@ -1071,8 +1094,8 @@ class MainWindow(QMainWindow):
         self._refresh_preview()
 
 
-def run_ui() -> int:
+def run_ui(paths: AppPaths | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    window = MainWindow(AppPaths())
+    window = MainWindow(paths or AppPaths())
     window.show()
     return app.exec()
