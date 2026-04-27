@@ -315,15 +315,10 @@ class HotEdgeTrigger(QWidget):
             
             if in_x and in_y:
                 self.dwell_time_ms += 500
-                if self.dwell_time_ms == 500:
-                    print(f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}")
                 if self.dwell_time_ms >= self.trigger_threshold_ms:
                     self.dwell_time_ms = 0
-                    print("-> Hot-Edge: Dwell COMPLETE!")
                     self._on_dwell_complete()
             else:
-                if self.dwell_time_ms > 0:
-                    print(f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})")
                 self.dwell_time_ms = 0
 
     def enterEvent(self, event) -> None:
