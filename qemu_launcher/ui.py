@@ -253,10 +253,11 @@ class HotEdgeTrigger(QWidget):
             _make_window_global_macos(int(self.winId()))
 
         # Dwell Logic
+        self.dwell_time_ms = 0
         self.dwell_timer = QTimer(self)
         self.dwell_timer.setSingleShot(True)
         self.dwell_timer.timeout.connect(self._on_dwell_complete)
-        self.trigger_threshold_ms = 5000  # 5 seconds as requested
+        self.trigger_threshold_ms = 5000 
 
         # Persistence Timer (Combat Wayland hiding)
         self.raise_timer = QTimer(self)
@@ -266,11 +267,8 @@ class HotEdgeTrigger(QWidget):
         # Ensure it starts on the correct monitor
         QTimer.singleShot(500, self._update_geometry)
 
-    def _persist_on_top(self) -> None:
-        if self.isVisible():
-            self.raise_()
-
     def _update_geometry(self) -> None:
+        from PySide6.QtGui import QGuiApplication
         screens = QGuiApplication.screens()
         if not screens:
             return
@@ -291,14 +289,53 @@ class HotEdgeTrigger(QWidget):
             height,
         )
 
+    def _persist_on_top(self) -> None:
+        if self.isVisible():
+            self.raise_()
+        
+        # On Linux, we use direct polling for maximum reliability against jitter
+        if sys.platform.startswith("linux"):
+            from PySide6.QtGui import QCursor
+            pos = QCursor.pos()
+            
+            # Find the screen we are supposed to be on
+            screens = QGuiApplication.screens()
+            if not screens: return
+            if not self.target_display_name:
+                screen = screens[0]
+            else:
+                screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+            
+            geom = screen.geometry()
+            trigger_height = self.height() + 5
+            
+            # Check if mouse is within the horizontal and vertical bounds of the trigger zone
+            in_x = geom.x() <= pos.x() <= (geom.x() + geom.width())
+            in_y = geom.y() <= pos.y() <= (geom.y() + trigger_height)
+            
+            if in_x and in_y:
+                self.dwell_time_ms += 500
+                if self.dwell_time_ms == 500:
+                    print(f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}")
+                if self.dwell_time_ms >= self.trigger_threshold_ms:
+                    self.dwell_time_ms = 0
+                    print("-> Hot-Edge: Dwell COMPLETE!")
+                    self._on_dwell_complete()
+            else:
+                if self.dwell_time_ms > 0:
+                    print(f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})")
+                self.dwell_time_ms = 0
+
     def enterEvent(self, event) -> None:
-        """Start the dwell timer when the mouse enters the trigger area."""
-        self.dwell_timer.start(self.trigger_threshold_ms)
+        """Fallback for non-Linux or enter-based detection."""
+        if not sys.platform.startswith("linux"):
+            self.dwell_timer.start(self.trigger_threshold_ms)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        """Cancel the dwell timer if the mouse leaves the trigger area."""
-        self.dwell_timer.stop()
+        """Fallback for non-Linux or leave-based detection."""
+        if not sys.platform.startswith("linux"):
+            self.dwell_timer.stop()
         super().leaveEvent(event)
 
     def _on_dwell_complete(self) -> None:
