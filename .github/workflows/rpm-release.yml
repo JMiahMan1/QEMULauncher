@@ -1,0 +1,75 @@
+name: Build and Deploy RPM Repo
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-rpm-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y rpm python3-pip
+      - name: Build RPM
+        run: |
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          tar --exclude="./rpmbuild" -czf rpmbuild/SOURCES/qemu-launcher-2.0.tar.gz .
+          rpmbuild -ba qemu-launcher.spec --define "_topdir $(pwd)/rpmbuild"
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-x86_64
+          path: rpmbuild/RPMS/x86_64/*.rpm
+
+  build-rpm-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: uraimo/run-on-arch-action@v2
+        name: Build on aarch64
+        with:
+          arch: aarch64
+          distro: fedora_latest
+          run: |
+            dnf install -y rpm-build python3-pip gcc python3-devel
+            mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+            tar --exclude="./rpmbuild" -czf rpmbuild/SOURCES/qemu-launcher-2.0.tar.gz .
+            rpmbuild -ba qemu-launcher.spec --define "_topdir $(pwd)/rpmbuild"
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-aarch64
+          path: rpmbuild/RPMS/aarch64/*.rpm
+
+  deploy-repo:
+    needs: [build-rpm-x86_64, build-rpm-aarch64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: repo/
+          merge-multiple: true
+      - name: Update Metadata
+        run: |
+          sudo apt-get update && sudo apt-get install -y createrepo-c
+          cd repo/
+          createrepo_c .
+      - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "docs: Update RPM repository with new release"
+          git push

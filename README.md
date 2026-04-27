@@ -23,12 +23,31 @@ A premium, native-feeling virtualization manager for macOS and Linux. QEMU Launc
 *   **Shared Folders**: Integrated support for `virtio-9p` and `virtiofs` for high-speed file sharing between host and guest.
 *   **QMP Integration**: Real-time status monitoring and graceful power management via the QEMU Machine Protocol.
 
+## 📦 Installation (Linux / RPM)
+
+The easiest way to install and stay updated is via our official RPM repository.
+
+### 1. Add the Repository
+Create a file at `/etc/yum.repos.d/qemu-launcher.repo` with the following content:
+
+```ini
+[qemu-launcher]
+name=QEMU Launcher Repository
+baseurl=https://JMiahMan1.github.io/QEMULauncher/repo/
+enabled=1
+gpgcheck=0
+```
+
+### 2. Install via DNF
+```bash
+sudo dnf install qemu-launcher
+```
+
 ## 📦 Installation (macOS)
 
 1.  **Download the DMG**: Open the `QEMU Launcher.dmg`.
 2.  **Drag to Applications**: Move the app to your `/Applications` folder.
 3.  **Launch**: Open the app. 
-4.  **One-Time Setup**: If you choose high-performance networking (`vmnet`), the app will ask for your administrator password **once** to install its internal networking helper. After this, all launches are instant and password-free.
 
 ## 🛠 Usage
 
@@ -46,13 +65,13 @@ A premium, native-feeling virtualization manager for macOS and Linux. QEMU Launc
 
 ### Prerequisites
 *   Python 3.12+
-*   QEMU installed (`brew install qemu` or `apt install qemu-system`)
-*   `wmctrl` (Linux only, for display placement)
+*   QEMU installed (`brew install qemu` or `dnf install qemu-system-x86`)
+*   `wmctrl` (Linux only, for display placement: `dnf install wmctrl`)
 
 ### Build from Source
 ```bash
 # Clone the repository
-git clone https://github.com/your-repo/QEMULauncher.git
+git clone https://github.com/JMiahMan1/QEMULauncher.git
 cd QEMULauncher
 
 # Install dependencies

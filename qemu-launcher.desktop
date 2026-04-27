@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=QEMU Launcher
+Comment=Premium QEMU Virtualization Manager
+Exec=qemu-launcher
+Icon=system-run
+Type=Application
+Categories=System;Utility;Emulator;
+Terminal=false
+StartupWMClass=qemu-launcher
