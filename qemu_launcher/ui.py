@@ -230,16 +230,16 @@ class HotEdgeTrigger(QWidget):
         self.target_display_name = target_display_name
         self.on_trigger = on_trigger
         flags = (
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.ToolTip
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
-        if sys.platform.startswith("linux"):
-            flags |= Qt.WindowType.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # On Wayland, we need a tiny bit of opacity to ensure the window is 'visible' for events
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
 
         self._update_geometry()
         self.show()
@@ -253,11 +253,17 @@ class HotEdgeTrigger(QWidget):
         self.dwell_timer.timeout.connect(self._on_dwell_complete)
         self.trigger_threshold_ms = 5000  # 5 seconds as requested
 
-        # Transparent but captures mouse. Alpha 1 is effectively invisible but still receives events.
-        self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
+        # Persistence Timer (Combat Wayland hiding)
+        self.raise_timer = QTimer(self)
+        self.raise_timer.timeout.connect(self._persist_on_top)
+        self.raise_timer.start(500)
 
         # Ensure it starts on the correct monitor
         QTimer.singleShot(500, self._update_geometry)
+
+    def _persist_on_top(self) -> None:
+        if self.isVisible():
+            self.raise_()
 
     def _update_geometry(self) -> None:
         screens = QGuiApplication.screens()
@@ -270,9 +276,9 @@ class HotEdgeTrigger(QWidget):
             screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
         geom = screen.geometry()
-        # On Linux/Wayland, a full-width and slightly thicker bar is much more reliable
+        # On Linux/Wayland, a full-width and thicker bar (25px) is much more reliable
         width = geom.width()
-        height = 15 
+        height = 25 if sys.platform.startswith("linux") else 15
         self.setGeometry(
             geom.x(),
             geom.y(),
