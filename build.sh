@@ -23,6 +23,11 @@ echo "-> Cleaning previous builds..."
 rm -rf build dist "$OUTPUT_APP"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
+    # --- ADD THIS COMPILE COMMAND ---
+    echo "-> Compiling Network Helper..."
+    gcc -O2 qemu_launcher_helper.c -o qemu-launcher-helper -framework vmnet
+    # --------------------------------
+
     echo "-> Building standalone macOS application with PyInstaller..."
     "$PYTHON_BIN" build_pyinstaller.py
 

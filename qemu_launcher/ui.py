@@ -536,6 +536,11 @@ class MainWindow(QMainWindow):
         self.display_combo.currentTextChanged.connect(self._refresh_preview)
         self.fullscreen_check = QCheckBox("Launch fullscreen")
         self.fullscreen_check.stateChanged.connect(self._refresh_preview)
+        self.overlay_check = QCheckBox("Show 'Exit Fullscreen' Overlay")
+        self.overlay_check.setStyleSheet("margin-left: 20px;")
+        self.fullscreen_check.toggled.connect(self.overlay_check.setEnabled)
+        self.overlay_check.setEnabled(self.fullscreen_check.isChecked())
+        self.overlay_check.stateChanged.connect(self._refresh_preview)
         self.display_backend_combo = QComboBox()
         self.display_backend_combo.addItems(["auto", "cocoa", "gtk", "sdl", "none"])
         self.display_backend_combo.currentTextChanged.connect(self._refresh_preview)
@@ -544,6 +549,7 @@ class MainWindow(QMainWindow):
         self.graphics_combo.currentTextChanged.connect(self._refresh_preview)
         layout.addRow("Target Display", self.display_combo)
         layout.addRow("Fullscreen", self.fullscreen_check)
+        layout.addRow("", self.overlay_check)
         layout.addRow("Display Backend", self.display_backend_combo)
         layout.addRow("Graphics", self.graphics_combo)
         root_layout.addLayout(layout)
@@ -729,6 +735,7 @@ class MainWindow(QMainWindow):
             self.display_combo.addItem(profile.target_display_name)
         self.display_combo.setCurrentText(profile.target_display_name)
         self.fullscreen_check.setChecked(profile.enable_fullscreen)
+        self.overlay_check.setChecked(getattr(profile, "show_fullscreen_overlay", False))
         self.display_backend_combo.setCurrentText(profile.display_backend)
         self.graphics_combo.setCurrentText(profile.graphics_mode)
         self.shared_dir_edit.setText(profile.shared_dir_path)
@@ -758,6 +765,7 @@ class MainWindow(QMainWindow):
         profile.cpu_cores = self.cpu_spin.value()
         profile.target_display_name = self.display_combo.currentText() or PRIMARY_DISPLAY_NAME
         profile.enable_fullscreen = self.fullscreen_check.isChecked()
+        profile.show_fullscreen_overlay = self.overlay_check.isChecked()
         profile.display_backend = self.display_backend_combo.currentText()
         profile.graphics_mode = self.graphics_combo.currentText()
         profile.shared_dir_path = self.shared_dir_edit.text().strip()
@@ -895,9 +903,13 @@ class MainWindow(QMainWindow):
 
                 # 2. Trigger fullscreen via QMP if requested
                 if profile.enable_fullscreen:
-                    self.hot_edge.show()
-                    # We use a timer to trigger FS after a short delay to ensure window is ready
-                    QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
+                    if getattr(profile, "show_fullscreen_overlay", False):
+                        self.hot_edge.show()
+                        # We use a timer to trigger FS after a short delay to ensure window is ready
+                        QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
+                    else:
+                        # Just trigger fullscreen, don't show the overlay/hot-edge
+                        QTimer.singleShot(2000, lambda: controller.toggle_fullscreen())
 
                 self.status_label.setText(f"Launched {profile.name}")
             else:
@@ -905,12 +917,13 @@ class MainWindow(QMainWindow):
         except (ConfigurationError, OSError, RuntimeError) as exc:
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
-    def _delayed_fullscreen(self, controller) -> None:
+    def _delayed_fullscreen(self, controller: VMController) -> None:
         """Trigger fullscreen and show overlay after a short delay."""
         if controller.is_running():
             controller.toggle_fullscreen()
             # Show overlay immediately so user has an escape path
-            self.fs_overlay.show_at_top()
+            if getattr(controller.profile, "show_fullscreen_overlay", False):
+                self.fs_overlay.show_at_top()
 
     def _maybe_auto_launch_startup_profile(self) -> None:
         if self._startup_launch_done or not self.settings.auto_launch_enabled:

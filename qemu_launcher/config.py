@@ -138,6 +138,7 @@ class VMProfile(BaseModel):
     memory_mib: int = 4096
     cpu_cores: int = 4
     enable_fullscreen: bool = True
+    show_fullscreen_overlay: bool = False
     target_display_name: str = "Primary Display"
     display_backend: str = "auto"
     graphics_mode: str = "auto"
@@ -206,6 +207,7 @@ def write_profile(profile: VMProfile, path: Path) -> None:
         f"memory_mib = {profile.memory_mib}",
         f"cpu_cores = {profile.cpu_cores}",
         f"enable_fullscreen = {'true' if profile.enable_fullscreen else 'false'}",
+        f"show_fullscreen_overlay = {'true' if getattr(profile, 'show_fullscreen_overlay', False) else 'false'}",
         f"target_display_name = {_toml_quote(profile.target_display_name)}",
         f"display_backend = {_toml_quote(profile.display_backend)}",
         f"graphics_mode = {_toml_quote(profile.graphics_mode)}",
