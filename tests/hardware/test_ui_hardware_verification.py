@@ -144,8 +144,6 @@ def test_ui_workflow():
                 qemu_bin = shutil.which(f"qemu-system-{arch}") or f"/usr/bin/qemu-system-{arch}"
 
             machine = "virt" if arch == "aarch64" else "q35"
-            accel = "hvf" if is_macos else "kvm"
-            cpu = "host" if is_macos else "host"
 
             # UEFI for aarch64 on macOS
             firmware_arg = ""
