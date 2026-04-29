@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Another instance is already running. Exiting.", file=sys.stderr)
         return 1
     import logging
+
     parser = argparse.ArgumentParser(description="QEMU Launcher")
     parser.add_argument("--dry-run", action="store_true", help="Print the resolved QEMU command and exit")
     parser.add_argument("--launch", action="store_true", help="Launch the selected profile without opening the UI")

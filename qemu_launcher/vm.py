@@ -344,11 +344,9 @@ def build_command(
     if profile.graphics_mode in ("auto", "virtio"):
         if profile.architecture == "aarch64":
             # The 'virt' machine has no default graphics, keyboard, or mouse
-            command.extend([
-                "-device", "virtio-gpu-pci",
-                "-device", "virtio-keyboard-pci",
-                "-device", "virtio-tablet-pci"
-            ])
+            command.extend(
+                ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci"]
+            )
         else:
             # x86_64 q35 can use standard virtio-vga
             command.extend(["-vga", "virtio"])
@@ -378,7 +376,7 @@ def build_command(
     if disk_path.lower().endswith((".qcow2", ".qcow", ".img")):
         # For safety in this refactor, let's just allow QEMU to auto-detect
         # or use a simple heuristic. Real production would use qemu-img info.
-        if disk_path.lower().endswith(".qcow2"):
+        if disk_path.lower().endswith(".qcow2") or disk_path.lower().endswith(".qcow"):
             disk_format = "qcow2"
 
     command.extend(["-device", "virtio-blk-pci,drive=disk0"])
@@ -397,9 +395,10 @@ def build_command(
 
     return command
 
+
 def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> str:
     needs_gl = profile.graphics_mode == "virtio-gl"
-    
+
     # macOS Cocoa uses gl=es, while SDL/GTK use gl=on
     gl_flag_mac = ",gl=es" if needs_gl else ""
     gl_flag_std = ",gl=on" if needs_gl else ""
@@ -420,11 +419,12 @@ def _display_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
             return f"sdl,show-cursor=on{gl_flag_std}"
         # Otherwise fallback to Cocoa
         return f"cocoa,show-cursor=on,zoom-to-fit=on,left-command-key=on{gl_flag_mac}"
-        
+
     # Linux Defaults
     if "gtk" in caps.displays:
         return f"gtk,show-cursor=on{gl_flag_std}"
     return f"sdl,show-cursor=on{gl_flag_std}"
+
 
 def _audio_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
     if not profile.enable_audio:
@@ -489,17 +489,13 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
                 arg = "shared" if mode == "vmnet-shared" else "bridged"
                 raw_interface = profile.bridge_interface.split()[0] if profile.bridge_interface else ""
 
-                if mode == "vmnet-bridged" and raw_interface:
-                    subprocess.Popen(
-                        [helper_path, arg, raw_interface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                else:
-                    subprocess.Popen([helper_path, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd = [helper_path, arg, raw_interface, profile.profile_id]
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 # Wait a moment for helper to listen
                 time.sleep(0.5)
 
             # 2. Return the socket-based netdev. QEMU will connect to the helper's Unix socket.
-            socket_path = "/tmp/qemu-launcher-net.sock"
+            socket_path = f"/tmp/qemu-launcher-net-{profile.profile_id}.sock"
             return [
                 "-netdev",
                 f"stream,id=net0,addr.type=unix,addr.path={socket_path}",

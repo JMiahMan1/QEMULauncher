@@ -17,6 +17,6 @@ pip install pytest pytest-qt PySide6 pyobjc-framework-Quartz pyobjc-framework-Ap
 
 # 2. Run the specialized UI suite
 echo "-> Running macOS UI integrity tests..."
-pytest tests/test_ui_mac.py -v
+pytest tests/hardware/test_ui_hardware_verification.py -v
 
 echo "--- Tests Complete ---"

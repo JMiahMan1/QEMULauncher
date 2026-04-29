@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 # Only run these tests on macOS with a physical GUI session
 pytestmark = pytest.mark.skipif(
     sys.platform != "darwin" or os.environ.get("CI") == "true",
-    reason="Hardware UI tests require a physical macOS graphical session."
+    reason="Hardware UI tests require a physical macOS graphical session.",
 )
 
 try:

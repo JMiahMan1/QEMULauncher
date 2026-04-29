@@ -17,9 +17,9 @@ A premium, native-feeling virtualization manager for macOS and Linux. QEMU Launc
 
 *   **Premium macOS Experience**: Optimized for Apple Silicon and Intel, featuring native window management and multi-monitor support.
 *   **Seamless Networking**: High-performance `vmnet-shared` and `bridged` networking using a bundled privileged helper—no root passwords required after a one-time setup.
-*   **Intelligent Display Placement**: Automatically moves and resizes VMs to your chosen monitor, including secondary screens, without the dreaded macOS "ding" sound.
+*   **Intelligent Display Placement**: Automatically moves and resizes VMs to your chosen monitor using pure Accessibility APIs on macOS (no Automation prompts!) and `wmctrl` on Linux X11 (gracefully degrading on Wayland).
 *   **Auto-Resume**: Remembers your VM state and automatically resumes where you left off.
-*   **Native UI Overlays**: Hidden "Hot Edge" triggers and elegant exit menus that stay visible even in greedy fullscreen modes.
+*   **Native UI Overlays**: Cross-platform "Hot Edge" triggers and elegant exit menus that automatically ungrab your mouse via QMP and stay visible even in greedy fullscreen modes.
 *   **Shared Folders**: Integrated support for `virtio-9p` and `virtiofs` for high-speed file sharing between host and guest.
 *   **QMP Integration**: Real-time status monitoring and graceful power management via the QEMU Machine Protocol.
 

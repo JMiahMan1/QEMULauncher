@@ -22,7 +22,7 @@ To achieve near-native networking performance without running the entire VM as r
 ### The Flow:
 1.  **Initialization**: The Launcher starts the `qemu_launcher_helper` in the background.
 2.  **Creation**: The Helper uses Apple's `vmnet.framework` to initialize a `vmnet-shared` or `vmnet-bridged` interface.
-3.  **Communication**: The Helper creates a Unix Domain Socket at `/tmp/qemu-launcher-net.sock`.
+3.  **Communication**: The Helper creates a Unix Domain Socket at `/tmp/qemu-launcher-net-{profile_id}.sock`, preventing conflicts between concurrent VMs.
 4.  **Handoff**: QEMU is launched with the `-netdev stream` backend, pointing to the Unix socket.
 5.  **Connection**: When QEMU connects, the Helper sends the `vmnet` file descriptor over the socket using `SCM_RIGHTS`.
 6.  **Persistence**: The Helper remains active as long as the connection is open, keeping the network interface alive.
@@ -31,7 +31,7 @@ To achieve near-native networking performance without running the entire VM as r
 
 ## 2. Window Management & Multi-Monitor Support
 
-On macOS, QEMU's Cocoa interface enforces strict internal constraints that often conflict with native OS window management.
+On macOS, QEMU's Cocoa interface enforces strict internal constraints that often conflict with native OS window management. On Linux, display placement depends on the X11/Wayland session type.
 
 ### Aspect-Ratio-Aware Placement
 To prevent the common "Ding" sound and OS-level blocks during boot, the launcher performs a geometric handshake via the Accessibility API (AX):
@@ -41,13 +41,17 @@ To prevent the common "Ding" sound and OS-level blocks during boot, the launcher
 
 ### Legacy vs. Native Fullscreen
 *   **Primary Monitor**: Uses QEMU's internal `-full-screen` (Legacy) for maximum compatibility.
-*   **Secondary Monitors**: Launches windowed, moves the frame via AX, and then triggers a Native Space transition via the `kAXFullScreenAttribute`.
+*   **Secondary Monitors (macOS)**: Launches windowed, moves the frame purely via the native AX API (preventing 'System Events' permission prompts), and then triggers a Native Space transition via the `kAXFullScreenAttribute`. Filtering by `AXSize` is used to prevent snapping onto transient boot windows.
+*   **Secondary Monitors (Linux)**: Uses `wmctrl` on X11 to shuffle the window to the desired display bounds. On Wayland sessions (where `wmctrl` hangs/fails), it gracefully skips and delegates placement to the compositor.
 
 ---
 
 ## 3. UI Overlays & Window Leveling
 
-The "Exit Fullscreen" menu and the "Hotspot" trigger must remain visible even when QEMU is in its greedy legacy fullscreen mode.
+The "Exit Fullscreen" menu and the "Hot Edge" trigger must remain visible even when QEMU is in its greedy legacy fullscreen mode.
+
+### Cross-Platform Polling & QMP Ungrab
+To solve issues with QEMU grabbing the host mouse, the launcher actively queries a cross-platform global mouse hook (QCursor polling). When the mouse reaches the "Hot Edge", the launcher sends a QMP `input-send-event` command to QEMU to forcefully ungrab the mouse (`Ctrl+Alt+G`), ensuring the user can click the resulting exit overlay.
 
 ### NSStatusWindowLevel
 The launcher uses native Cocoa API calls to elevate these triggers:

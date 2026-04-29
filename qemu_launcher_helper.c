@@ -9,12 +9,25 @@
 #include <unistd.h>
 #include <vmnet/vmnet.h>
 
-#define SOCKET_PATH "/tmp/qemu-launcher-net.sock"
+#include <ctype.h>
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <shared|bridged> [interface_name]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <shared|bridged> [interface_name] [socket_id]\n", argv[0]);
         return 1;
+    }
+
+    char socket_path[256];
+    if (argc > 3 && strlen(argv[3]) > 0) {
+        for(char *p = argv[3]; *p; p++) {
+            if(!isalnum(*p) && *p != '-' && *p != '_') {
+                fprintf(stderr, "Invalid socket_id\n");
+                return 1;
+            }
+        }
+        snprintf(socket_path, sizeof(socket_path), "/tmp/qemu-launcher-net-%s.sock", argv[3]);
+    } else {
+        snprintf(socket_path, sizeof(socket_path), "/tmp/qemu-launcher-net.sock");
     }
 
     xpc_object_t interface_desc = xpc_dictionary_create(NULL, NULL, 0);
@@ -43,16 +56,16 @@ int main(int argc, char *argv[]) {
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
     // Setup Unix Socket Server for QEMU to connect to
-    unlink(SOCKET_PATH);
+    unlink(socket_path);
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) exit(1);
     if (listen(server_fd, 1) == -1) exit(1);
-    chmod(SOCKET_PATH, 0666); // Crucial: Allow standard user QEMU to connect
+    chmod(socket_path, 0666); // Crucial: Allow standard user QEMU to connect
 
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd == -1) exit(1);
@@ -110,7 +123,7 @@ int main(int argc, char *argv[]) {
     
     close(client_fd);
     close(server_fd);
-    unlink(SOCKET_PATH);
+    unlink(socket_path);
     
     return 0;
 }

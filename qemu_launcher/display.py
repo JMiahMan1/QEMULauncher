@@ -29,15 +29,17 @@ def is_primary_display_name(name: str | None) -> bool:
         return True
     return name == PRIMARY_DISPLAY_NAME or name.endswith(" (Primary)")
 
+
 def should_qemu_handle_fullscreen(target_display_name: str | None, enable_fullscreen: bool) -> bool:
     """Return True if QEMU itself should handle the fullscreen transition."""
     if not enable_fullscreen:
         return False
-    
+
     # For non-primary displays, we rely on post-launch OS window manager
     # placement (wmctrl on Linux, Accessibility API on macOS) to move
     # the window to the target monitor before triggering fullscreen.
     return is_primary_display_name(target_display_name)
+
 
 def get_display_index(target_name: str | None) -> int:
     """Return the system index of the display matching target_name."""
@@ -161,6 +163,10 @@ def _available_displays_macos() -> list[DisplayTarget]:
 
 
 def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type == "wayland":
+        return "Wayland detected: display placement must be done manually by the window manager."
+
     if not _command_exists("wmctrl"):
         return "Install wmctrl to enable non-primary display placement on Linux."
     window_id = _find_wmctrl_window_id(pid)
@@ -213,6 +219,7 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             kAXFrontmostAttribute,
             kAXTrustedCheckOptionPrompt,
             kAXValueCGPointType,
+            kAXValueCGSizeType,
         )
 
         # Accessibility attribute names are strings. Some bridge versions miss the constants.
@@ -244,9 +251,13 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
         for i, win in enumerate(elements):
             e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
             if role_val == "AXWindow":
-                window = win
-                logger.info("Located QEMU display window via AX.")
-                break
+                err_size, size_val = AXUIElementCopyAttributeValue(win, "AXSize", None)
+                if err_size == 0 and size_val:
+                    ok, current_size = AXValueGetValue(size_val, kAXValueCGSizeType, None)
+                    if ok and current_size.width >= 400 and current_size.height >= 300:
+                        window = win
+                        logger.info("Located QEMU display window via AX.")
+                        break
 
         if window:
             break
@@ -271,105 +282,40 @@ def _arrange_window_macos(pid: int, target: DisplayTarget, fullscreen: bool) -> 
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute, True)
     time.sleep(0.5)
 
-    # 5. Set Position & Size with AppleScript Fallback
-    # On macOS, native AX moves often fail over SSH/Headless due to TCC restrictions.
-    # AppleScript (System Events) is more robust in these environments.
-    logger.info(f"Moving window for PID {pid} to ({target.x}, {target.y}) via AppleScript fallback...")
-    script = f"""
-    tell application "System Events"
-        set qemu_proc to first process whose unix id is {pid}
-        set win_list to windows of qemu_proc
-        if (count of win_list) > 0 then
-            set win to item 1 of win_list
-            set position of win to {{{target.x}, {target.y}}}
-            set size of win to {{{target.width - 40}, {target.height - 40}}}
-        end if
-    end tell
-    """
-    try:
-        subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-        logger.info("AppleScript move command sent.")
-    except Exception as e:
-        logger.warning(f"AppleScript move failed: {e}")
-
-    # 6. Verification & AX Fullscreen Toggle
+    # 5. Set Position & Size using Pure AX API
     success_move = False
-    deadline_move = time.time() + 5.0
-    while time.time() < deadline_move:
-        # Re-check AX for verification
-        elements = []
-        for attr in ["AXWindows", "AXChildren"]:
-            err_v, vals = AXUIElementCopyAttributeValue(app, attr, None)
-            if err_v == 0 and vals:
-                elements.extend(vals)
+    if window:
+        logger.info(f"Moving window for PID {pid} to ({target.x}, {target.y}) via pure AX API...")
+        position = Quartz.CGPoint(x=target.x, y=target.y)
+        pos_val = Quartz.AXValueCreate(kAXValueCGPointType, position)
+        if pos_val:
+            Quartz.AXUIElementSetAttributeValue(window, "AXPosition", pos_val)
 
-        for win in elements:
-            e_role, role_val = AXUIElementCopyAttributeValue(win, "AXRole", None)
-            if role_val == "AXWindow":
-                window = win
-                break
+        size = Quartz.CGSize(width=max(target.width - 40, 640), height=max(target.height - 40, 480))
+        size_val = Quartz.AXValueCreate(kAXValueCGSizeType, size)
+        if size_val:
+            Quartz.AXUIElementSetAttributeValue(window, "AXSize", size_val)
 
-        if window:
-            err_check, current_pos_val = AXUIElementCopyAttributeValue(window, "AXPosition", None)
-            if err_check == 0 and current_pos_val:
-                ok, current_pos = AXValueGetValue(current_pos_val, kAXValueCGPointType, None)
-                if ok and abs(current_pos.x - target.x) < 100:
-                    logger.info(f"Confirmed window moved to {current_pos.x}, {current_pos.y}")
-                    success_move = True
-                    break
-
+        # Verify Move
         time.sleep(1.0)
+        err_check, current_pos_val = AXUIElementCopyAttributeValue(window, "AXPosition", None)
+        if err_check == 0 and current_pos_val:
+            ok, current_pos = AXValueGetValue(current_pos_val, kAXValueCGPointType, None)
+            if ok and abs(current_pos.x - target.x) < 100:
+                logger.info(f"Confirmed window moved to {current_pos.x}, {current_pos.y}")
+                success_move = True
 
     # 6. Toggle Fullscreen if requested
-    if fullscreen:
-        logger.info("Requesting fullscreen toggle.")
+    if fullscreen and window:
+        logger.info("Requesting fullscreen toggle via AX.")
         time.sleep(1.0)
+        Quartz.AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
 
-        # Try AX first
-        err_fs = -1
-        if window:
-            err_fs = AXUIElementSetAttributeValue(window, AX_FULLSCREEN, True)
-
-        # Fallback to AppleScript if AX failed or window not found
-        if err_fs != 0:
-            logger.info("AX fullscreen toggle failed or window not found; using AppleScript fallback.")
-            script_fs = f"""
-            tell application "System Events"
-                set qemu_proc to first process whose unix id is {pid}
-                set win_list to windows of qemu_proc
-                if (count of win_list) > 0 then
-                    set win to item 1 of win_list
-                    set value of attribute "AXFullScreen" of win to true
-                end if
-            end tell
-            """
-            try:
-                subprocess.run(["osascript", "-e", script_fs], check=True, capture_output=True)
-                logger.info("AppleScript fullscreen command sent.")
-            except Exception as e:
-                logger.warning(f"AppleScript fullscreen failed: {e}")
-        # 7. Verify Fullscreen
+        # Verify Fullscreen
         time.sleep(2.0)
-        err_fs_check = -1
-        if window:
-            err_fs_check, fs_val = AXUIElementCopyAttributeValue(window, "AXFullScreen", None)
-            if err_fs_check == 0 and fs_val:
-                logger.info(f"Confirmed Fullscreen status via AX: {fs_val}")
-
-        if err_fs_check != 0:
-            # Try AppleScript check
-            script_check = f"""
-            tell application "System Events"
-                set qemu_proc to first process whose unix id is {pid}
-                set win to first window of qemu_proc
-                return value of attribute "AXFullScreen" of win
-            end tell
-            """
-            try:
-                out_fs = subprocess.check_output(["osascript", "-e", script_check]).decode().strip()
-                logger.info(f"AppleScript confirmed Fullscreen status: {out_fs}")
-            except Exception:
-                logger.warning("Could not verify fullscreen status via AX or AppleScript.")
+        err_fs_check, fs_val = AXUIElementCopyAttributeValue(window, AX_FULLSCREEN, None)
+        if err_fs_check == 0 and fs_val:
+            logger.info(f"Confirmed Fullscreen status via AX: {fs_val}")
 
     if not success_move:
         logger.error("Failed to move window to target monitor after multiple attempts.")

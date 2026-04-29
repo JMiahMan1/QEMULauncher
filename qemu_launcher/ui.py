@@ -35,11 +35,11 @@ from .capabilities import detect_network_interfaces, find_default_qemu
 from .config import (
     APP_AUTHOR,
     APP_NAME,
-    AppPaths,
     DWELL_DURATION_MS,
     HOT_EDGE_HEIGHT_LINUX,
     HOT_EDGE_HEIGHT_MACOS,
     POLLING_INTERVAL_MS,
+    AppPaths,
     VMProfile,
     build_default_profile,
     ensure_default_profile,
@@ -56,9 +56,6 @@ from .vm import (
 )
 
 logger = logging.getLogger("qemu-launcher")
-
-DWELL_DURATION_MS = 2000
-POLLING_INTERVAL_MS = 500
 
 
 def detect_screens() -> list[str]:
@@ -109,11 +106,13 @@ class FullscreenOverlay(QWidget):
         target_display_name: str | None = None,
         on_exit_fs: Callable[[], None] | None = None,
         on_stop: Callable[[], None] | None = None,
+        on_show: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.target_display_name = target_display_name
         self.on_exit_fs = on_exit_fs
         self.on_stop = on_stop
+        self.on_show = on_show
 
         # Persistence Timer (Combat Wayland hiding)
         self.raise_timer = QTimer(self)
@@ -231,10 +230,15 @@ class FullscreenOverlay(QWidget):
         y = geom.y()
         self.move(x, y)
         self.show()
+        if sys.platform == "darwin":
+            _make_window_global_macos(int(self.winId()))
         self.raise_()
         self.activateWindow()
         self.raise_timer.start(100)  # Raise every 100ms
         self._hide_timer.start(60000)  # Stay visible for 60s during boot
+
+        if self.on_show:
+            self.on_show()
 
 
 class HotEdgeTrigger(QWidget):
@@ -284,6 +288,7 @@ class HotEdgeTrigger(QWidget):
 
     def _update_geometry(self) -> None:
         from PySide6.QtGui import QGuiApplication
+
         screens = QGuiApplication.screens()
         if not screens:
             return
@@ -307,32 +312,36 @@ class HotEdgeTrigger(QWidget):
     def _persist_on_top(self) -> None:
         if self.isVisible():
             self.raise_()
-        
-        # On Linux, we use direct polling for maximum reliability against jitter
-        if sys.platform.startswith("linux"):
+
+        # Cross-platform direct polling for maximum reliability against jitter
+        if True:
             from PySide6.QtGui import QCursor
+
             pos = QCursor.pos()
-            
+
             # Find the screen we are supposed to be on
             screens = QGuiApplication.screens()
-            if not screens: return
+            if not screens:
+                return
             if not self.target_display_name:
                 screen = screens[0]
             else:
                 screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
-            
+
             geom = screen.geometry()
             trigger_height = self.height() + 5
-            
+
             # Check if mouse is within the horizontal and vertical bounds of the trigger zone
             in_x = geom.x() <= pos.x() <= (geom.x() + geom.width())
             in_y = geom.y() <= pos.y() <= (geom.y() + trigger_height)
-            
+
             if in_x and in_y:
                 self.dwell_time_ms += POLLING_INTERVAL_MS
                 print(f"-> Hot-Edge: MATCH TICK ({self.dwell_time_ms}ms)")
                 if self.dwell_time_ms >= self.trigger_threshold_ms:
-                    print(f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}")
+                    print(
+                        f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}"
+                    )
                 if self.dwell_time_ms >= self.trigger_threshold_ms:
                     self.dwell_time_ms = 0
                     print("-> Hot-Edge: Dwell COMPLETE!")
@@ -341,20 +350,10 @@ class HotEdgeTrigger(QWidget):
                     self._on_dwell_complete()
             else:
                 if self.dwell_time_ms > 0:
-                    print(f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})")
+                    print(
+                        f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})"
+                    )
                 self.dwell_time_ms = 0
-
-    def enterEvent(self, event) -> None:
-        """Fallback for non-Linux or enter-based detection."""
-        if not sys.platform.startswith("linux"):
-            self.dwell_timer.start(self.trigger_threshold_ms)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        """Fallback for non-Linux or leave-based detection."""
-        if not sys.platform.startswith("linux"):
-            self.dwell_timer.stop()
-        super().leaveEvent(event)
 
     def _on_dwell_complete(self) -> None:
         """Trigger the action after the dwell is successful."""
@@ -377,7 +376,11 @@ class MainWindow(QMainWindow):
         # Start the escape triggers on the correct monitor
         target_display = self._current_profile().target_display_name
         self.fs_overlay = FullscreenOverlay(
-            self, target_display, on_exit_fs=self._exit_fullscreen, on_stop=self._stop_profile
+            self,
+            target_display,
+            on_exit_fs=self._exit_fullscreen,
+            on_stop=self._stop_profile,
+            on_show=self._ungrab_mouse,
         )
         self.hot_edge = HotEdgeTrigger(self, target_display, on_trigger=self._handle_hot_edge)
 
@@ -385,6 +388,12 @@ class MainWindow(QMainWindow):
         self._restore_window_state()
         self._load_profile_into_form(self.profile_map[self.current_profile_id])
         QTimer.singleShot(0, self._maybe_auto_launch_startup_profile)
+
+    def _ungrab_mouse(self) -> None:
+        controller = self._create_controller(self._current_profile())
+        if controller.is_running():
+            logger.info("Auto-ungrabbing mouse via QMP...")
+            controller.send_key(["ctrl", "alt", "g"])
 
     def _create_controller(self, profile: VMProfile) -> VMController:
         """Centralized factory for VMController with correct dependencies."""
