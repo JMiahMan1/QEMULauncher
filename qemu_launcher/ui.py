@@ -235,7 +235,7 @@ class FullscreenOverlay(QWidget):
         self.raise_()
         self.activateWindow()
         self.raise_timer.start(100)  # Raise every 100ms
-        self._hide_timer.start(60000)  # Stay visible for 60s during boot
+        self._hide_timer.start(10000)  # Stay visible for 10s during boot
 
         if self.on_show:
             self.on_show()
@@ -314,46 +314,34 @@ class HotEdgeTrigger(QWidget):
             self.raise_()
 
         # Cross-platform direct polling for maximum reliability against jitter
-        if True:
-            from PySide6.QtGui import QCursor
+        from PySide6.QtGui import QCursor
 
-            pos = QCursor.pos()
+        pos = QCursor.pos()
 
-            # Find the screen we are supposed to be on
-            screens = QGuiApplication.screens()
-            if not screens:
-                return
-            if not self.target_display_name:
-                screen = screens[0]
-            else:
-                screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
+        # Find the screen we are supposed to be on
+        screens = QGuiApplication.screens()
+        if not screens:
+            return
+        if not self.target_display_name:
+            screen = screens[0]
+        else:
+            screen = next((s for s in screens if self.target_display_name in s.name()), screens[0])
 
-            geom = screen.geometry()
-            trigger_height = self.height() + 5
+        geom = screen.geometry()
+        trigger_height = self.height() + 5
 
-            # Check if mouse is within the horizontal and vertical bounds of the trigger zone
-            in_x = geom.x() <= pos.x() <= (geom.x() + geom.width())
-            in_y = geom.y() <= pos.y() <= (geom.y() + trigger_height)
+        # Check if mouse is within the horizontal and vertical bounds of the trigger zone
+        in_x = geom.x() <= pos.x() <= (geom.x() + geom.width())
+        in_y = geom.y() <= pos.y() <= (geom.y() + trigger_height)
 
-            if in_x and in_y:
-                self.dwell_time_ms += POLLING_INTERVAL_MS
-                print(f"-> Hot-Edge: MATCH TICK ({self.dwell_time_ms}ms)")
-                if self.dwell_time_ms >= self.trigger_threshold_ms:
-                    print(
-                        f"-> Hot-Edge: MATCH at {pos.x()},{pos.y()} | Screen: {geom.x()},{geom.y()} {geom.width()}x{geom.height()}"
-                    )
-                if self.dwell_time_ms >= self.trigger_threshold_ms:
-                    self.dwell_time_ms = 0
-                    print("-> Hot-Edge: Dwell COMPLETE!")
-                    # Audio feedback
-                    QApplication.beep()
-                    self._on_dwell_complete()
-            else:
-                if self.dwell_time_ms > 0:
-                    print(
-                        f"-> Hot-Edge: RESET (Mouse at {pos.x()},{pos.y()} | Required Y <= {geom.y() + trigger_height})"
-                    )
+        if in_x and in_y:
+            self.dwell_time_ms += POLLING_INTERVAL_MS
+            if self.dwell_time_ms >= self.trigger_threshold_ms:
                 self.dwell_time_ms = 0
+                QApplication.beep()
+                self._on_dwell_complete()
+        else:
+            self.dwell_time_ms = 0
 
     def _on_dwell_complete(self) -> None:
         """Trigger the action after the dwell is successful."""
@@ -977,18 +965,13 @@ class MainWindow(QMainWindow):
         try:
             launched = controller.launch()
             if launched:
-                # 1. Arrange window (move to monitor)
-                # We pass fullscreen=False here because we'll trigger it via QMP
-                from .display import arrange_window
-
-                arrange_window(controller._read_pid(), profile.target_display_name, fullscreen=False)
-
-                # 2. Trigger fullscreen via QMP if requested
+                # Fullscreen is handled by launch() via _start_display_arrangement():
+                # - Primary display: QEMU -full-screen flag (already set in build_command)
+                # - Non-primary: arrange_window() with fullscreen=True in background thread
+                # No need to call arrange_window() or toggle_fullscreen() here.
                 if profile.enable_fullscreen:
                     self.hot_edge.show()
-                    # We use a timer to trigger FS after a short delay to ensure window is ready
                     QTimer.singleShot(2000, lambda: self._delayed_fullscreen(controller))
-
                 self.status_label.setText(f"Launched {profile.name}")
             else:
                 self.status_label.setText(f"Failed to launch {profile.name}")
@@ -996,10 +979,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Launch Failed", str(exc))
 
     def _delayed_fullscreen(self, controller: VMController) -> None:
-        """Trigger fullscreen and show overlay after a short delay."""
+        """Show the fullscreen overlay after a short delay to ensure window is ready."""
         if controller.is_running():
-            controller.toggle_fullscreen()
-            # Show overlay immediately so user has an escape path if enabled
             if getattr(controller.profile, "show_fullscreen_overlay", False):
                 self.fs_overlay.show_at_top()
 

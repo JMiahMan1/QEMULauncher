@@ -75,17 +75,11 @@ class VMController:
             # On macOS, if we are targeting a specific display that isn't the primary,
             # we should NOT use -full-screen in the command line because it locks the window
             # on the primary display before we can move it via AX.
-            is_primary = False
+            # build_command() already handles this via should_qemu_handle_fullscreen().
             from .display import available_displays
 
             displays = available_displays()
-            if display_idx < len(displays):
-                is_primary = displays[display_idx].primary
-
-            if is_primary:
-                if "sdl" in _display_args(self.profile, self.capabilities, self.host_platform):
-                    command.extend(["-full-screen"])
-            else:
+            if display_idx < len(displays) and not displays[display_idx].primary:
                 logger.info("Non-primary display targeted on Mac; starting windowed to allow AX move.")
 
         with self.artifacts.stderr_log_file.open("w", encoding="utf-8") as stderr_handle:
@@ -515,7 +509,7 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
     if mode == "vmnet-bridged":
         # Usually bridges directly to 'en0' (Wi-Fi) or 'en1' (Ethernet)
         ifname = profile.bridge_interface.split()[0] if profile.bridge_interface else "en0"
-        return ["-nic", f"vmnet-bridged,ifname={ifname}"]
+        return ["-netdev", f"vmnet-bridged,id=net0,ifname={ifname}", "-device", "virtio-net-pci,netdev=net0"]
 
     if mode == "bridge":
         # Extract the interface name (e.g., 'bridge100' or 'en0' if the user selected 'en0 (Wi-Fi)')

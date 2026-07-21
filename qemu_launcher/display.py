@@ -165,7 +165,7 @@ def _available_displays_macos() -> list[DisplayTarget]:
 def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session_type == "wayland":
-        return "Wayland detected: display placement must be done manually by the window manager."
+        return _arrange_window_wayland(pid, target, fullscreen)
 
     if not _command_exists("wmctrl"):
         return "Install wmctrl to enable non-primary display placement on Linux."
@@ -191,6 +191,74 @@ def _arrange_window_linux(pid: int, target: DisplayTarget, fullscreen: bool) -> 
             text=True,
         )
     return None
+
+
+def _arrange_window_wayland(pid: int, target: DisplayTarget, fullscreen: bool) -> str | None:
+    """Attempt window placement on Wayland using available compositors."""
+    # Try swaymsg (Sway/i3)
+    if _command_exists("swaymsg"):
+        # Find the window by app_id or title
+        result = subprocess.run(
+            ["swaymsg", "-t", "get_tree"], capture_output=True, text=True, check=False
+        )
+        if result.returncode == 0 and result.stdout:
+            try:
+                import json as _json
+
+                tree = _json.loads(result.stdout)
+
+                def find_window(node):
+                    if node.get("pid") == pid:
+                        return node
+                    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+                        found = find_window(child)
+                        if found:
+                            return found
+                    return None
+
+                window = find_window(tree)
+                if window:
+                    con_id = window["id"]
+                    if fullscreen:
+                        subprocess.run(
+                            ["swaymsg", "con_id", str(con_id), "fullscreen", "enable"],
+                            check=False, capture_output=True, text=True,
+                        )
+                    else:
+                        subprocess.run(
+                            ["swaymsg", "con_id", str(con_id), "move", "position",
+                             str(target.x + 40), str(target.y + 40)],
+                            check=False, capture_output=True, text=True,
+                        )
+                        subprocess.run(
+                            ["swaymsg", "con_id", str(con_id), "resize", "set",
+                             str(max(target.width - 80, 640)), str(max(target.height - 80, 480))],
+                            check=False, capture_output=True, text=True,
+                        )
+                    return None
+            except Exception:
+                pass
+        return "Wayland (sway): Unable to locate QEMU window for placement."
+
+    # Try wlrmsg (generic wlroots)
+    if _command_exists("wlrmsg"):
+        logger.info("Using wlrmsg for Wayland window management")
+        # wlrmsg requires knowing the output name; we try to match by geometry
+        try:
+            subprocess.run(
+                ["wlrmsg", "output", "focus", target.name],
+                check=False, capture_output=True, text=True,
+            )
+            if fullscreen:
+                subprocess.run(
+                    ["wlrmsg", "fullscreen", "enable"],
+                    check=False, capture_output=True, text=True,
+                )
+            return None
+        except Exception:
+            pass
+
+    return "Wayland detected: Install swaymsg or wlrmsg for non-primary display placement."
 
 
 def _find_wmctrl_window_id(pid: int, timeout: float = 10.0) -> str | None:
@@ -336,6 +404,38 @@ def set_fullscreen(pid: int, target_display_name: str | None, enabled: bool) -> 
 def _set_fullscreen_linux(pid: int, enabled: bool) -> str | None:
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session_type == "wayland":
+        # Try swaymsg first
+        if _command_exists("swaymsg"):
+            result = subprocess.run(
+                ["swaymsg", "-t", "get_tree"], capture_output=True, text=True, check=False
+            )
+            if result.returncode == 0 and result.stdout:
+                try:
+                    import json as _json
+
+                    tree = _json.loads(result.stdout)
+
+                    def find_window(node):
+                        if node.get("pid") == pid:
+                            return node
+                        for child in node.get("nodes", []) + node.get("floating_nodes", []):
+                            found = find_window(child)
+                            if found:
+                                return found
+                        return None
+
+                    window = find_window(tree)
+                    if window:
+                        con_id = window["id"]
+                        action = "enable" if enabled else "disable"
+                        subprocess.run(
+                            ["swaymsg", "con_id", str(con_id), "fullscreen", action],
+                            check=False, capture_output=True, text=True,
+                        )
+                        return None
+                except Exception:
+                    pass
+            return "Wayland (sway): Unable to locate QEMU window."
         action = "Enter" if enabled else "Exit"
         return f"Wayland detected: Please use QEMU's internal hotkey (Ctrl+Alt+F) to {action} Fullscreen."
 
