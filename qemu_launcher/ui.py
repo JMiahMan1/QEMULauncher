@@ -253,6 +253,7 @@ class HotEdgeTrigger(QWidget):
         super().__init__(parent)
         self.target_display_name = target_display_name
         self.on_trigger = on_trigger
+        self._dwell_active = False
         flags = (
             Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
@@ -265,6 +266,14 @@ class HotEdgeTrigger(QWidget):
         # On Wayland, we need a tiny bit of opacity to ensure the window is 'visible' for events
         self.setStyleSheet("background-color: rgba(0, 0, 0, 1);")
 
+        # Subtle visual feedback label for dwell progress (only shows at final moment)
+        self._status_label = QLabel("", self)
+        self._status_label.setStyleSheet(
+            "color: #fff; background-color: rgba(0, 0, 0, 120); "
+            "padding: 1px 6px; border-radius: 3px; font-size: 10px;"
+        )
+        self._status_label.hide()
+
         self._update_geometry()
         self.show()
 
@@ -273,22 +282,26 @@ class HotEdgeTrigger(QWidget):
 
         # Dwell Logic
         self.dwell_time_ms = 0
-        self.dwell_timer = QTimer(self)
-        self.dwell_timer.setSingleShot(True)
-        self.dwell_timer.timeout.connect(self._on_dwell_complete)
         self.trigger_threshold_ms = DWELL_DURATION_MS
 
-        # Persistence Timer (Combat Wayland hiding)
+        # Persistence Timer (Combat Wayland hiding) + mouse polling
         self.raise_timer = QTimer(self)
         self.raise_timer.timeout.connect(self._persist_on_top)
         self.raise_timer.start(POLLING_INTERVAL_MS)
 
+        # Display change detection
+        QGuiApplication.primaryScreen().primaryStateChanged.connect(self._on_display_changed)
+        for screen in QGuiApplication.screens():
+            screen.geometryChanged.connect(self._on_display_changed)
+
         # Ensure it starts on the correct monitor
         QTimer.singleShot(500, self._update_geometry)
 
-    def _update_geometry(self) -> None:
-        from PySide6.QtGui import QGuiApplication
+    def _on_display_changed(self) -> None:
+        """Reposition the hot edge when display configuration changes."""
+        QTimer.singleShot(100, self._update_geometry)
 
+    def _update_geometry(self) -> None:
         screens = QGuiApplication.screens()
         if not screens:
             return
@@ -308,6 +321,8 @@ class HotEdgeTrigger(QWidget):
             width,
             height,
         )
+        # Position status label at the center-top of the hot edge
+        self._status_label.move((width - 120) // 2, 2)
 
     def _persist_on_top(self) -> None:
         if self.isVisible():
@@ -336,11 +351,22 @@ class HotEdgeTrigger(QWidget):
 
         if in_x and in_y:
             self.dwell_time_ms += POLLING_INTERVAL_MS
+            # Only show visual feedback in the final 500ms to avoid distracting during fullscreen
+            if self.dwell_time_ms >= self.trigger_threshold_ms - 500:
+                if not self._dwell_active:
+                    self._dwell_active = True
+                    self._status_label.setText("Releasing mouse...")
+                    self._status_label.show()
             if self.dwell_time_ms >= self.trigger_threshold_ms:
                 self.dwell_time_ms = 0
+                self._dwell_active = False
+                self._status_label.hide()
                 QApplication.beep()
                 self._on_dwell_complete()
         else:
+            if self._dwell_active:
+                self._dwell_active = False
+                self._status_label.hide()
             self.dwell_time_ms = 0
 
     def _on_dwell_complete(self) -> None:
