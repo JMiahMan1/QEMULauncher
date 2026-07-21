@@ -466,7 +466,9 @@ def _network_mode(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
 
 def _network_requires_elevation(profile: VMProfile, caps: QemuCapabilities, platform: str) -> bool:
     mode = _network_mode(profile, caps, platform)
-    return platform == "darwin" and mode in {"vmnet-shared", "vmnet-bridged"}
+    # On macOS, vmnet-shared, vmnet-bridged, and bridge modes all need elevated privileges
+    # to access network interfaces (vmnet framework or system network interfaces)
+    return platform == "darwin" and mode in {"vmnet-shared", "vmnet-bridged", "bridge"}
 
 
 def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> list[str]:
@@ -512,7 +514,8 @@ def _network_args(profile: VMProfile, caps: QemuCapabilities, platform: str) -> 
         return ["-netdev", f"vmnet-bridged,id=net0,ifname={ifname}", "-device", "virtio-net-pci,netdev=net0"]
 
     if mode == "bridge":
-        # Extract the interface name (e.g., 'bridge100' or 'en0' if the user selected 'en0 (Wi-Fi)')
+        # On macOS, bridge mode needs elevated privileges to access network interfaces
+        # The bridge interface (e.g., bridge100) must exist and be configured
         bridge_name = profile.bridge_interface.split()[0] if profile.bridge_interface else "bridge0"
         return ["-netdev", f"bridge,id=net0,br={bridge_name}", "-device", "virtio-net-pci,netdev=net0"]
 
