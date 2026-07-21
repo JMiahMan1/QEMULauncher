@@ -289,10 +289,11 @@ class HotEdgeTrigger(QWidget):
         self.raise_timer.timeout.connect(self._persist_on_top)
         self.raise_timer.start(POLLING_INTERVAL_MS)
 
-        # Display change detection
-        QGuiApplication.primaryScreen().primaryStateChanged.connect(self._on_display_changed)
+        # Display change detection - use screenAdded/screenRemoved signals
+        QGuiApplication.screenAdded.connect(lambda: QTimer.singleShot(1000, self._update_geometry))
+        QGuiApplication.screenRemoved.connect(lambda: QTimer.singleShot(1000, self._update_geometry))
         for screen in QGuiApplication.screens():
-            screen.geometryChanged.connect(self._on_display_changed)
+            screen.geometryChanged.connect(self._update_geometry)
 
         # Ensure it starts on the correct monitor
         QTimer.singleShot(500, self._update_geometry)
