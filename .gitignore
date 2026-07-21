@@ -26,3 +26,4 @@ htmlcov/
 config.ini
 .setup_complete
 *.qcow2
+qemu-launcher-helper
